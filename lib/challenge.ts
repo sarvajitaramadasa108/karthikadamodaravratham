@@ -8,7 +8,9 @@ export function istTime(now = new Date()): string {
   return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).format(now);
 }
 export function inChallenge(date: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= START_DATE && date <= END_DATE;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < START_DATE || date > END_DATE) return false;
+  const parsed = new Date(`${date}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
 }
 export function beforeDeadline(time: string): boolean {
   return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) && time < '19:30';

@@ -32,6 +32,7 @@ export function sameOrigin(request: Request) {
 }
 export function fail(error: unknown) {
   if (error instanceof AppError) return Response.json({ error: error.message }, { status: error.status });
+  if (error instanceof SyntaxError) return Response.json({ error: 'Please send a valid form submission.' }, { status: 400 });
   console.error('Challenge request failed:', error instanceof Error ? error.message : 'unknown error');
   return Response.json({ error: 'Something went wrong. Your form has not been confirmed. Please try again.' }, { status: 500 });
 }
