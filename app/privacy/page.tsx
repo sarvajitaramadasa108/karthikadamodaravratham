@@ -1,0 +1,1 @@
+export default function Privacy() { return <main className="page-top"><a className="back-link" href="/">Damodara Vratham</a><h1>For parents & guardians</h1><p>Children should register and participate with a parent or guardian. Lamp offerings require adult supervision. Participant information and submitted photos will be available only to the organizers.</p></main>; }

@@ -1,0 +1,1 @@
+export default function Organizer() { return <main className="page-top"><a className="back-link" href="/">Damodara Vratham</a><h1>Organizer access</h1><p>The protected attendance and offering review page is being prepared.</p></main>; }

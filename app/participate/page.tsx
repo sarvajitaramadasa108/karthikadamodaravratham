@@ -1,0 +1,1 @@
+export default function Participate() { return <main className="page-top"><a className="back-link" href="/">Damodara Vratham</a><h1>Offer a little love.</h1><p>Daily lamp and Special Offerings forms are being prepared. Submissions open October 26, 2026.</p></main>; }

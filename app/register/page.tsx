@@ -1,0 +1,1 @@
+export default function Register() { return <main className="page-top"><a className="back-link" href="/">Damodara Vratham</a><span className="eyebrow">FREE · AGES 6–15 · VIZAG</span><h1>Your journey<br/><em>starts here.</em></h1><p>The parent-assisted registration form is being prepared. Please check back shortly.</p></main>; }
