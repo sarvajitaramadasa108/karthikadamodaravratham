@@ -1,7 +1,7 @@
-import { CalendarDays, Flame, Heart, Sparkles, BookOpen, Music, Palette, MapPin } from 'lucide-react';
-import { safeLink } from '@/lib/challenge';
-export const dynamic = 'force-dynamic';
+import ChallengeLanding from '@/components/ChallengeLanding';
 export default function Home() {
+  return <ChallengeLanding />;
+  /*
   const temple = process.env.TEMPLE_NAME || 'Our temple in Vizag';
   const session = safeLink(process.env.SESSION_URL);
   const arati = safeLink(process.env.ARATI_URL);
@@ -16,4 +16,5 @@ export default function Home() {
       <section className="wrap faq-section"><h2>A few things to know</h2><div className="faq-grid"><details><summary>Who can participate?</summary><p>Children ages 6–15 living in or around Vizag (Visakhapatnam). Registration is free and should be completed by a parent or guardian.</p></details><details><summary>How do I submit my daily lamp photo?</summary><p>After registering, save your private participant code. Use it in the Daily Lamp Offering form. Include a visible date and time stamp in the photo, and offer and submit your lamp before 7:30 PM IST.</p></details><details><summary>How is attendance recorded?</summary><p>The organizers record attendance for the Gita session, Japa and live arati each day. Lamp photos are reviewed separately. Consistent lamp offerings and regular attendance are appreciated at the end.</p></details><details><summary>Are Special Offerings compulsory?</summary><p>No. They are an optional way to spend more time offering love to Krishna. Submit a child’s own drawing, narration, song or other creative offering through the Special Offerings form.</p></details></div></section>
     </main><footer className="site-footer wrap"><a className="brand" href="/"><span className="brand-icon"><Flame size={22}/></span><span>Damodara <b>Vratham</b><small>A MONTH OF LOVE & DEVOTION</small></span></a><p>October 26 – November 25, 2026 · Vizag</p><div><a href="/privacy">Parent & privacy information</a><a href="/organizer">Organizer access</a></div></footer>
   </>;
+  */
 }

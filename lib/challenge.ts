@@ -1,6 +1,6 @@
 export const START_DATE = '2026-10-26';
-export const END_DATE = '2026-11-25';
-export const TOTAL_DAYS = 31;
+export const END_DATE = '2026-11-24';
+export const TOTAL_DAYS = 30;
 export function istDate(now = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 }
