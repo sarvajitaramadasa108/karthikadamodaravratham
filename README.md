@@ -1,17 +1,17 @@
 # Karthika Damodara Vratham
 
-**A month of offering Love and Devotion** — a free challenge for children ages 6–15 in and around Vizag. October 26–November 24, **2026**, inclusive: **30 calendar days**. All deadlines follow **Asia/Kolkata (IST)**.
+**A month of offering Love and Devotion** — a free challenge for everyone in and around Vizag. October 26–November 24, **2026**, inclusive: **30 calendar days**. All deadlines follow **Asia/Kolkata (IST)**.
 
 ## Included features
 
 - Responsive homepage, daily schedule, recognition details, and optional Special Offerings.
-- Free parent-assisted registration with age validation and consent.
+- Free registration with consent.
 - Private participant code displayed once, with copy/download actions.
-- Daily timestamped lamp photo form: one lamp record per child per day.
+- Daily timestamped lamp photo form: one lamp record per participant per day.
 - Special Offerings form for artwork, narration, singing or other creativity.
 - Private photo/video uploads directly to Supabase, avoiding Vercel function body-size limits.
 - Protected `/organizer` page: review photos/videos, verify lamps, mark Gita/Japa/arati attendance by date, shortlist special offerings, replace lost participant codes and export the month’s attendance CSV.
-- Parent/privacy information. Children, contact details and media are not publicly listed.
+- Privacy information. Participant contact details and media are not publicly listed.
 
 ## Deploy to Vercel
 
