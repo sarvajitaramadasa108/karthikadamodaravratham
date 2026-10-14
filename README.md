@@ -1,6 +1,6 @@
 # Karthika Damodara Vratham
 
-**A month of offering Love and Devotion** — a free challenge for children ages 6–15 in and around Vizag. October 26–November 25, **2026**, inclusive: **31 calendar days**. All deadlines follow **Asia/Kolkata (IST)**.
+**A month of offering Love and Devotion** — a free challenge for children ages 6–15 in and around Vizag. October 26–November 24, **2026**, inclusive: **30 calendar days**. All deadlines follow **Asia/Kolkata (IST)**.
 
 ## Included features
 
@@ -41,7 +41,7 @@ Forms are visible but closed until storage is configured. They do **not** preten
 Never prefix the key/password/session secret with `NEXT_PUBLIC_`, put them in GitHub, or paste them into chat. Set them for Production (and Preview if desired), then **redeploy**.
 
 4. Register a test participant, save the private code, and check its record in `/organizer`. Remove the test record and any test media before inviting families.
-5. Offering submissions open **October 26, 2026** and close after **November 25, 2026**. Do not bypass these date gates on the public website just to test uploads.
+5. Offering submissions open **October 26, 2026** and close after **November 24, 2026**. Do not bypass these date gates on the public website just to test uploads.
 
 ## Daily workflow and review
 
