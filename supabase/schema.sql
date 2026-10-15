@@ -27,7 +27,7 @@ create table public.uploads (
 create table public.daily_offerings (
   id uuid primary key,
   participant_id uuid not null references public.participants(id) on delete cascade,
-  offering_date date not null check (offering_date between date '2026-10-26' and date '2026-11-25'),
+  offering_date date not null check (offering_date between date '2026-10-26' and date '2026-11-24'),
   offered_at time not null check (offered_at < time '19:30:00'),
   upload_id uuid not null unique references public.uploads(id),
   submitted_before_deadline boolean not null,
@@ -37,7 +37,7 @@ create table public.daily_offerings (
 );
 create table public.attendance (
   participant_id uuid not null references public.participants(id) on delete cascade,
-  attendance_date date not null check (attendance_date between date '2026-10-26' and date '2026-11-25'),
+  attendance_date date not null check (attendance_date between date '2026-10-26' and date '2026-11-24'),
   gita boolean not null default false,
   japa boolean not null default false,
   arati boolean not null default false,
