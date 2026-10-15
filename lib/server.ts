@@ -37,8 +37,8 @@ export function fail(error: unknown) {
   return Response.json({ error: 'Something went wrong. Your form has not been confirmed. Please try again.' }, { status: 500 });
 }
 function sessionSecret() {
-  const secret = process.env.SESSION_SECRET;
-  if (!secret || secret.length < 32) throw new AppError('Organizer access has not been configured.', 503);
+  const secret = process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!secret || secret.length < 32) throw new AppError('Admin access has not been configured.', 503);
   return secret;
 }
 export function makeSession() {
