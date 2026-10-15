@@ -1,7 +1,8 @@
 -- Run once in your Supabase project's SQL editor before opening registrations.
+create sequence if not exists registration_number_seq start 1;
 create table public.participants (
   id uuid primary key,
-  reference text not null unique,
+  reference text not null unique default ('KDC-' || lpad(nextval('registration_number_seq')::text, 4, '0')),
   access_hash text not null unique,
     child_name text not null check (char_length(child_name) between 2 and 80),
     age integer null check (age is null or age between 6 and 15),
