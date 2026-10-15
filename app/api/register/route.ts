@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     if (error?.code === '23505') throw new AppError('This name and WhatsApp number are already registered. Please contact the organizers if you need help.', 409);
     if (error?.code === '42P01') throw new AppError('The Supabase participants table is missing. Run the supplied schema.sql in Supabase SQL Editor.', 503);
     if (error?.code === '23502' || error?.code === '42703' || error?.code === '23514') throw new AppError('The Supabase participants table uses the older schema. Run the supplied registration migration in Supabase SQL Editor.', 503);
-    if (error) { console.error('Registration insert failed:', error.message); throw new AppError('Your registration could not be saved. Please try again.', 503); }
+    if (error) { console.error('Registration insert failed:', error.code, error.message); throw new AppError(`Database error (${error.code || 'unknown'}): ${error.message}`, 503); }
     return Response.json({ code, reference, name }, { status: 201, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) { return fail(error); }
 }
