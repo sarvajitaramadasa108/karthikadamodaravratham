@@ -112,10 +112,13 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
 
   useEffect(() => {
     if ((mode !== 'hostDashboard' && mode !== 'host') || savedRooms.length === 0) return;
-    Promise.all(savedRooms.map(async (room) => {
+    const loadRooms = () => Promise.all(savedRooms.map(async (room) => {
       try { const response = await fetch(`/api/quiz?code=${room.code}`, { cache: 'no-store' }); const data = await response.json(); return [room.code, data] as const; }
       catch { return null; }
     })).then((items) => setRoomViews(Object.fromEntries(items.filter((item): item is readonly [string, QuizView] => Boolean(item)))));
+    loadRooms();
+    const timer = window.setInterval(loadRooms, 5000);
+    return () => window.clearInterval(timer);
   }, [mode, savedRooms]);
 
   useEffect(() => {
