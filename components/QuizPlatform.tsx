@@ -33,6 +33,7 @@ export default function QuizPlatform() {
   const [playerId, setPlayerId] = useState('');
   const [answered, setAnswered] = useState<number | null>(null);
   const [reaction, setReaction] = useState('');
+  const [remaining, setRemaining] = useState(0);
   const [busy, setBusy] = useState(false);
 
   const current = view?.question;
@@ -53,6 +54,18 @@ export default function QuizPlatform() {
     const timer = window.setInterval(() => { refresh().catch(() => undefined); }, 1800);
     return () => window.clearInterval(timer);
   }, [mode, roomCode]);
+
+  useEffect(() => {
+    if (!current || view?.session.status !== 'live') { setRemaining(0); return; }
+    let left = current.seconds;
+    setRemaining(left);
+    const timer = window.setInterval(() => {
+      left -= 1;
+      setRemaining(Math.max(0, left));
+      if (left <= 0) window.clearInterval(timer);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [current?.id, view?.session.status]);
 
   async function createQuiz(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError('');
@@ -76,7 +89,7 @@ export default function QuizPlatform() {
   }
 
   async function answer(index: number) {
-    if (!current || answered !== null) return;
+    if (!current || answered !== null || remaining <= 0) return;
     setBusy(true); setError('');
     try { await callApi({ action: 'answer', code: roomCode, playerId, answerIndex: index }); setAnswered(index); await refresh(); }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not record that answer.'); }
@@ -92,7 +105,7 @@ export default function QuizPlatform() {
 
   if (mode === 'join') return <QuizShell><Back onClick={() => setMode('home')}/><div className="quiz-card quiz-form-card"><span className="quiz-kicker">Join a room</span><h2>Enter the game code</h2><p>Use the six-digit code shown by the host.</p><form onSubmit={joinQuiz}><label className="quiz-field">Game code<input value={gameCode} onChange={(event) => setGameCode(event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" required placeholder="123456"/></label><label className="quiz-field">Your display name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} required maxLength={40} placeholder="e.g. Radha"/></label>{error && <div className="quiz-error">{error}</div>}<button className="quiz-button" disabled={busy}>{busy ? 'Joining…' : 'Join quiz'} <ArrowRight size={17}/></button></form></div></QuizShell>;
 
-  return <QuizShell><div className="quiz-room-top"><div><span className="quiz-kicker">{isHost ? 'Host room' : 'Player room'}</span><h2>{view?.session.title}</h2></div><div className="quiz-code"><small>GAME CODE</small><strong>{roomCode}</strong><button onClick={() => copyText(roomCode)} aria-label="Copy game code"><Copy size={15}/></button></div></div>{error && <div className="quiz-error">{error}</div>}{view?.session.status === 'lobby' && <div className="quiz-card quiz-lobby"><Users size={28}/><h3>Waiting room</h3><p>Share the code with everyone. Players can join from any phone.</p><div className="player-pills">{view.players.map((player) => <span key={player.id}>{player.display_name}</span>)}{view.players.length === 0 && <span className="muted-pill">No players yet</span>}</div>{isHost ? <button className="quiz-button" onClick={() => hostAction('start')} disabled={busy || view.players.length === 0}><Play size={17}/> {busy ? 'Starting…' : 'Start quiz'}</button> : <div className="quiz-waiting">You’re in. Wait for the host to start.</div>}</div>}{view?.session.status === 'live' && current && <div className="quiz-live-grid"><div className="quiz-card quiz-question-card"><div className="question-meta"><span>Question {current.position + 1} of {view.questions.length}</span><span>{current.seconds}s timer</span></div><h3>{current.prompt}</h3><div className="answer-grid">{current.options.map((option, index) => <button key={option} className={answered === index ? 'selected' : ''} onClick={() => answer(index)} disabled={isHost || answered !== null || busy}>{String.fromCharCode(65 + index)}. {option}</button>)}</div><div className="quiz-reactions"><span>React</span>{['❤️', '🙏', '🪔', '✨', '👏'].map((item) => <button key={item} className={reaction === item ? 'selected' : ''} onClick={() => setReaction(item)}>{item}</button>)}</div>{isHost ? <button className="quiz-button" onClick={() => hostAction('next')} disabled={busy}>{current.position + 1 === view.questions.length ? 'Show results' : 'Next question'} <ArrowRight size={17}/></button> : answered !== null && <div className="quiz-waiting">Answer received. Watch the host screen for the next question.</div>}</div><Scoreboard players={sortedPlayers}/></div>}{view?.session.status === 'finished' && <div className="quiz-card quiz-results"><span className="quiz-kicker">Quiz complete</span><h2>Well done, everyone.</h2><Scoreboard players={sortedPlayers}/><button className="quiz-button" onClick={() => { setMode('home'); setView(null); }}>Create another quiz</button></div>}</QuizShell>;
+  return <QuizShell><div className="quiz-room-top"><div><span className="quiz-kicker">{isHost ? 'Host room' : 'Player room'}</span><h2>{view?.session.title}</h2></div><div className="quiz-code"><small>GAME CODE</small><strong>{roomCode}</strong><button onClick={() => copyText(roomCode)} aria-label="Copy game code"><Copy size={15}/></button></div></div>{error && <div className="quiz-error">{error}</div>}{view?.session.status === 'lobby' && <div className="quiz-card quiz-lobby"><Users size={28}/><h3>Waiting room</h3><p>Share the code with everyone. Players can join from any phone.</p><div className="player-pills">{view.players.map((player) => <span key={player.id}>{player.display_name}</span>)}{view.players.length === 0 && <span className="muted-pill">No players yet</span>}</div>{isHost ? <button className="quiz-button" onClick={() => hostAction('start')} disabled={busy || view.players.length === 0}><Play size={17}/> {busy ? 'Starting…' : 'Start quiz'}</button> : <div className="quiz-waiting">You’re in. Wait for the host to start.</div>}</div>}{view?.session.status === 'live' && current && <div className="quiz-live-grid"><div className="quiz-card quiz-question-card"><div className="question-meta"><span>Question {current.position + 1} of {view.questions.length}</span><span className={remaining <= 5 ? 'timer-danger' : ''}>⏱ {remaining}s</span></div><div className="quiz-timer"><span style={{ width: `${Math.max(0, Math.min(100, remaining / current.seconds * 100))}%` }}/></div><h3>{current.prompt}</h3><div className="answer-grid">{current.options.map((option, index) => <button key={option} className={answered === index ? 'selected' : ''} onClick={() => answer(index)} disabled={isHost || answered !== null || busy || remaining <= 0}>{String.fromCharCode(65 + index)}. {option}</button>)}</div><div className="quiz-reactions"><span>React</span>{['❤️', '🙏', '🪔', '✨', '👏'].map((item) => <button key={item} className={reaction === item ? 'selected' : ''} onClick={() => setReaction(item)}>{item}</button>)}</div>{isHost ? <button className="quiz-button" onClick={() => hostAction('next')} disabled={busy}>{current.position + 1 === view.questions.length ? 'Show results' : 'Next question'} <ArrowRight size={17}/></button> : answered !== null ? <div className="quiz-waiting">Answer received. Watch the host screen for the next question.</div> : remaining <= 0 && <div className="quiz-waiting">Time is up. Wait for the next question.</div>}</div><Scoreboard players={sortedPlayers}/></div>}{view?.session.status === 'finished' && <div className="quiz-card quiz-results"><span className="quiz-kicker">Quiz complete</span><h2>Well done, everyone.</h2><Scoreboard players={sortedPlayers}/><button className="quiz-button" onClick={() => { setMode('home'); setView(null); }}>Create another quiz</button></div>}</QuizShell>;
 }
 
 function Scoreboard({ players }: { players: Player[] }) { return <aside className="quiz-card quiz-scoreboard"><h3>Leaderboard</h3>{players.length === 0 ? <p className="muted-pill">Waiting for players</p> : players.map((player, index) => <div className="score-row" key={player.id}><strong>{index + 1}</strong><span>{player.display_name}</span><b>{player.score}</b></div>)}</aside>; }
