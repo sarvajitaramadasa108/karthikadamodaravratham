@@ -104,6 +104,7 @@ export async function POST(request: Request) {
     }
     if (body.action === 'update') {
       const current = await hostSession(client, body.code, body.hostToken);
+      if (current.status !== 'lobby') throw new AppError('Only a quiz in the lobby can be edited. Finish or close the current room before making changes.', 409);
       const title = text(body.title, 'quiz title', 3, 120);
       const prepared = questions(body.questions);
       const updated = await client.from('quiz_sessions').update({ title, status: 'lobby', current_question: 0 }).eq('id', current.id);
