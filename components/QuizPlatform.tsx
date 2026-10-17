@@ -1,0 +1,100 @@
+'use client';
+
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { ArrowRight, Check, Copy, Gamepad2, Heart, Play, Sparkles, Users } from 'lucide-react';
+
+type QuizQuestion = { id: string; position: number; prompt: string; options: string[]; correctIndex?: number; seconds: number };
+type Player = { id: string; display_name: string; score: number; joined_at?: string };
+type QuizView = { session: { id: string; code: string; title: string; status: 'lobby' | 'live' | 'finished'; current_question: number; created_at?: string }; questions: QuizQuestion[]; question: QuizQuestion | null; players: Player[] };
+
+const starterQuestions = [
+  { prompt: 'Who is known as Damodara?', options: ['Sri Krishna', 'Arjuna', 'Balarama', 'Narada'], correctIndex: 0, seconds: 20 },
+  { prompt: 'What do we offer during the Damodara month?', options: ['A ghee lamp', 'A crown', 'A conch only', 'A flag'], correctIndex: 0, seconds: 20 },
+  { prompt: 'Which mantra is sung in devotion?', options: ['Hare Krishna Maha Mantra', 'Gayatri only', 'Shanti mantra', 'No mantra'], correctIndex: 0, seconds: 20 },
+];
+
+async function callApi(body: Record<string, unknown>) {
+  const response = await fetch('/api/quiz', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Quiz action failed.');
+  return data;
+}
+
+function copyText(value: string) { navigator.clipboard?.writeText(value); }
+
+export default function QuizPlatform() {
+  const [mode, setMode] = useState<'home' | 'host' | 'join' | 'hostRoom' | 'playerRoom'>('home');
+  const [error, setError] = useState('');
+  const [title, setTitle] = useState('Karthika Damodara Values Quiz');
+  const [gameCode, setGameCode] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [view, setView] = useState<QuizView | null>(null);
+  const [hostToken, setHostToken] = useState('');
+  const [playerId, setPlayerId] = useState('');
+  const [answered, setAnswered] = useState<number | null>(null);
+  const [reaction, setReaction] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const current = view?.question;
+  const isHost = mode === 'hostRoom';
+  const roomCode = view?.session.code || gameCode;
+  const sortedPlayers = useMemo(() => [...(view?.players || [])].sort((a, b) => b.score - a.score), [view?.players]);
+
+  async function refresh(code = roomCode) {
+    if (!code) return;
+    const response = await fetch(`/api/quiz?code=${encodeURIComponent(code)}`, { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not load this game.');
+    setView(data);
+  }
+
+  useEffect(() => {
+    if (mode !== 'hostRoom' && mode !== 'playerRoom') return;
+    const timer = window.setInterval(() => { refresh().catch(() => undefined); }, 1800);
+    return () => window.clearInterval(timer);
+  }, [mode, roomCode]);
+
+  async function createQuiz(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError('');
+    try { const data = await callApi({ action: 'create', title, questions: starterQuestions }); setView(data); setHostToken(data.hostToken); setGameCode(data.session.code); setMode('hostRoom'); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Could not create the quiz.'); }
+    finally { setBusy(false); }
+  }
+
+  async function joinQuiz(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError('');
+    try { const data = await callApi({ action: 'join', code: gameCode.trim(), displayName }); setView(data); setPlayerId(data.player.id); setMode('playerRoom'); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Could not join the quiz.'); }
+    finally { setBusy(false); }
+  }
+
+  async function hostAction(action: 'start' | 'next') {
+    setBusy(true); setError('');
+    try { setView(await callApi({ action, code: roomCode, hostToken })); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Could not update the room.'); }
+    finally { setBusy(false); }
+  }
+
+  async function answer(index: number) {
+    if (!current || answered !== null) return;
+    setBusy(true); setError('');
+    try { await callApi({ action: 'answer', code: roomCode, playerId, answerIndex: index }); setAnswered(index); await refresh(); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Could not record that answer.'); }
+    finally { setBusy(false); }
+  }
+
+  function resetForNext() { setAnswered(null); setReaction(''); }
+  useEffect(() => { resetForNext(); }, [view?.session.current_question]);
+
+  if (mode === 'home') return <QuizShell><div className="quiz-hero"><span className="quiz-kicker"><Sparkles size={16}/> Karthika learning studio</span><h1>Live quizzes for <em>devotion</em> and learning.</h1><p>Host a friendly Bhagavad Gita values quiz, share one game code, and let everyone answer together from their phone.</p><div className="quiz-home-actions"><button className="quiz-button" onClick={() => { setMode('host'); setError(''); }}><Play size={18}/> Host a quiz</button><button className="quiz-button secondary" onClick={() => { setMode('join'); setError(''); }}><Gamepad2 size={18}/> Join a quiz</button></div><div className="quiz-feature-row"><span><Users size={16}/> Live player lobby</span><span><Heart size={16}/> Safe reaction bar</span><span><Check size={16}/> Instant scoring</span></div></div><div className="quiz-card quiz-preview"><div className="quiz-preview-glow"/><div className="quiz-preview-code">GAME CODE <strong>123 456</strong></div><div className="quiz-preview-question">What does a lamp represent in devotion?</div><div className="quiz-preview-options"><span>Love</span><span>Discipline</span><span>Both</span><span>Service</span></div><div className="quiz-reactions"><span>❤️</span><span>🙏</span><span>🪔</span><span>✨</span></div></div></QuizShell>;
+
+  if (mode === 'host') return <QuizShell><Back onClick={() => setMode('home')}/><div className="quiz-card quiz-form-card"><span className="quiz-kicker">Host a room</span><h2>Create a live quiz</h2><p>We’ll start with a ready-made Karthika values quiz. Question editing and media uploads are next in the build.</p><form onSubmit={createQuiz}><label className="quiz-field">Quiz title<input value={title} onChange={(event) => setTitle(event.target.value)} required maxLength={120}/></label>{error && <div className="quiz-error">{error}</div>}<button className="quiz-button" disabled={busy}>{busy ? 'Creating…' : 'Create live room'} <ArrowRight size={17}/></button></form></div></QuizShell>;
+
+  if (mode === 'join') return <QuizShell><Back onClick={() => setMode('home')}/><div className="quiz-card quiz-form-card"><span className="quiz-kicker">Join a room</span><h2>Enter the game code</h2><p>Use the six-digit code shown by the host.</p><form onSubmit={joinQuiz}><label className="quiz-field">Game code<input value={gameCode} onChange={(event) => setGameCode(event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" required placeholder="123456"/></label><label className="quiz-field">Your display name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} required maxLength={40} placeholder="e.g. Radha"/></label>{error && <div className="quiz-error">{error}</div>}<button className="quiz-button" disabled={busy}>{busy ? 'Joining…' : 'Join quiz'} <ArrowRight size={17}/></button></form></div></QuizShell>;
+
+  return <QuizShell><div className="quiz-room-top"><div><span className="quiz-kicker">{isHost ? 'Host room' : 'Player room'}</span><h2>{view?.session.title}</h2></div><div className="quiz-code"><small>GAME CODE</small><strong>{roomCode}</strong><button onClick={() => copyText(roomCode)} aria-label="Copy game code"><Copy size={15}/></button></div></div>{error && <div className="quiz-error">{error}</div>}{view?.session.status === 'lobby' && <div className="quiz-card quiz-lobby"><Users size={28}/><h3>Waiting room</h3><p>Share the code with everyone. Players can join from any phone.</p><div className="player-pills">{view.players.map((player) => <span key={player.id}>{player.display_name}</span>)}{view.players.length === 0 && <span className="muted-pill">No players yet</span>}</div>{isHost ? <button className="quiz-button" onClick={() => hostAction('start')} disabled={busy || view.players.length === 0}><Play size={17}/> {busy ? 'Starting…' : 'Start quiz'}</button> : <div className="quiz-waiting">You’re in. Wait for the host to start.</div>}</div>}{view?.session.status === 'live' && current && <div className="quiz-live-grid"><div className="quiz-card quiz-question-card"><div className="question-meta"><span>Question {current.position + 1} of {view.questions.length}</span><span>{current.seconds}s timer</span></div><h3>{current.prompt}</h3><div className="answer-grid">{current.options.map((option, index) => <button key={option} className={answered === index ? 'selected' : ''} onClick={() => answer(index)} disabled={isHost || answered !== null || busy}>{String.fromCharCode(65 + index)}. {option}</button>)}</div><div className="quiz-reactions"><span>React</span>{['❤️', '🙏', '🪔', '✨', '👏'].map((item) => <button key={item} className={reaction === item ? 'selected' : ''} onClick={() => setReaction(item)}>{item}</button>)}</div>{isHost ? <button className="quiz-button" onClick={() => hostAction('next')} disabled={busy}>{current.position + 1 === view.questions.length ? 'Show results' : 'Next question'} <ArrowRight size={17}/></button> : answered !== null && <div className="quiz-waiting">Answer received. Watch the host screen for the next question.</div>}</div><Scoreboard players={sortedPlayers}/></div>}{view?.session.status === 'finished' && <div className="quiz-card quiz-results"><span className="quiz-kicker">Quiz complete</span><h2>Well done, everyone.</h2><Scoreboard players={sortedPlayers}/><button className="quiz-button" onClick={() => { setMode('home'); setView(null); }}>Create another quiz</button></div>}</QuizShell>;
+}
+
+function Scoreboard({ players }: { players: Player[] }) { return <aside className="quiz-card quiz-scoreboard"><h3>Leaderboard</h3>{players.length === 0 ? <p className="muted-pill">Waiting for players</p> : players.map((player, index) => <div className="score-row" key={player.id}><strong>{index + 1}</strong><span>{player.display_name}</span><b>{player.score}</b></div>)}</aside>; }
+function Back({ onClick }: { onClick: () => void }) { return <button className="quiz-back" onClick={onClick}>← Back</button>; }
+function QuizShell({ children }: { children: React.ReactNode }) { return <main className="quiz-page"><header className="quiz-header"><a href="/" className="quiz-brand"><span>🪔</span><b>Karthika Quiz</b><small>Hare Krishna Vaikuntham</small></a><a href="/" className="quiz-home-link">Back to challenge</a></header><div className="quiz-wrap">{children}</div><footer className="quiz-footer">A simple live learning space for the Karthika Damodara Challenge.</footer></main>; }
