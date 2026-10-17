@@ -24,8 +24,8 @@ async function callApi(body: Record<string, unknown>) {
 
 function copyText(value: string) { navigator.clipboard?.writeText(value); }
 
-export default function QuizPlatform({ initialMode = 'home', lockedMode }: { initialMode?: 'home' | 'host' | 'join'; lockedMode?: 'host' | 'join' }) {
-  const [mode, setMode] = useState<'home' | 'host' | 'join' | 'hostRoom' | 'playerRoom'>(initialMode);
+export default function QuizPlatform({ initialMode = 'home', lockedMode }: { initialMode?: 'home' | 'host' | 'join' | 'hostDashboard'; lockedMode?: 'host' | 'join' }) {
+  const [mode, setMode] = useState<'home' | 'hostDashboard' | 'host' | 'join' | 'hostRoom' | 'playerRoom'>(initialMode);
   const [error, setError] = useState('');
   const [title, setTitle] = useState('Karthika Damodara Values Quiz');
   const [questionsDraft, setQuestionsDraft] = useState(starterQuestions);
@@ -39,6 +39,9 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
   const [remaining, setRemaining] = useState(0);
   const [busy, setBusy] = useState(false);
   const [savedRooms, setSavedRooms] = useState<HostRoom[]>([]);
+  const [roomViews, setRoomViews] = useState<Record<string, QuizView>>({});
+  const [selectedRoomCode, setSelectedRoomCode] = useState('');
+  const [editingCode, setEditingCode] = useState('');
 
   const current = view?.question;
   const isHost = mode === 'hostRoom';
@@ -108,6 +111,14 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
   }, [mode, roomCode]);
 
   useEffect(() => {
+    if ((mode !== 'hostDashboard' && mode !== 'host') || savedRooms.length === 0) return;
+    Promise.all(savedRooms.map(async (room) => {
+      try { const response = await fetch(`/api/quiz?code=${room.code}`, { cache: 'no-store' }); const data = await response.json(); return [room.code, data] as const; }
+      catch { return null; }
+    })).then((items) => setRoomViews(Object.fromEntries(items.filter((item): item is readonly [string, QuizView] => Boolean(item)))));
+  }, [mode, savedRooms]);
+
+  useEffect(() => {
     if (!current || view?.session.status !== 'live') { setRemaining(0); return; }
     let left = current.seconds;
     setRemaining(left);
@@ -121,7 +132,7 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
 
   async function createQuiz(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError('');
-    try { const data = await callApi({ action: 'create', title, questions: questionsDraft }); setView(data); setHostToken(data.hostToken); setGameCode(data.session.code); rememberRoom({ code: data.session.code, title: data.session.title, hostToken: data.hostToken, status: data.session.status, createdAt: new Date().toISOString() }); setMode('hostRoom'); }
+    try { const data = editingCode ? await callApi({ action: 'update', code: editingCode, hostToken, title, questions: questionsDraft }) : await callApi({ action: 'create', title, questions: questionsDraft }); setView(data); if (!editingCode) { setHostToken(data.hostToken); setGameCode(data.session.code); } rememberRoom({ code: data.session.code, title: data.session.title, hostToken: editingCode ? hostToken : data.hostToken, status: data.session.status, createdAt: data.session.created_at || new Date().toISOString() }); setEditingCode(''); setMode('hostRoom'); }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not create the quiz.'); }
     finally { setBusy(false); }
   }
@@ -147,6 +158,13 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
     finally { setBusy(false); }
   }
 
+  async function editRoom(room: HostRoom) {
+    setBusy(true); setError('');
+    try { const data = await callApi({ action: 'loadHost', code: room.code, hostToken: room.hostToken }); setTitle(data.session.title); setQuestionsDraft(data.questions.map((question: QuizQuestion & { correct_index: number }) => ({ prompt: question.prompt, options: question.options, correctIndex: question.correct_index, seconds: question.seconds }))); setEditingCode(room.code); setHostToken(room.hostToken); setGameCode(room.code); setMode('host'); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Could not edit that quiz.'); }
+    finally { setBusy(false); }
+  }
+
   async function answer(index: number) {
     if (!current || answered !== null || remaining <= 0) return;
     setBusy(true); setError('');
@@ -157,6 +175,8 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
 
   function resetForNext() { setAnswered(null); setReaction(''); }
   useEffect(() => { resetForNext(); }, [view?.session.current_question]);
+
+  if (mode === 'hostDashboard') return <QuizShell><div className="quiz-dashboard-heading"><div><span className="quiz-kicker">Host dashboard</span><h2>Your quizzes</h2><p>Monitor participation, open a live room, review scores, or edit a quiz.</p></div><button className="quiz-button" onClick={() => { setEditingCode(''); setQuestionsDraft(starterQuestions); setMode('host'); }}><Sparkles size={17}/> Create quiz</button></div>{error && <div className="quiz-error">{error}</div>}{savedRooms.length === 0 ? <div className="quiz-card quiz-empty-dashboard"><Gamepad2 size={30}/><h3>No quizzes created yet</h3><p>Create your first Karthika values quiz and it will appear here.</p><button className="quiz-button" onClick={() => setMode('host')}>Create your first quiz</button></div> : <div className="quiz-dashboard-grid">{savedRooms.map((room) => { const details = roomViews[room.code]; const players = details?.players || []; const status = details?.session.status || room.status; const average = players.length ? Math.round(players.reduce((sum, player) => sum + player.score, 0) / players.length) : 0; return <article className="quiz-card quiz-dashboard-card" key={room.code}><div className="quiz-dashboard-card-top"><span className={`quiz-status ${status}`}>{status}</span><strong>{room.code}</strong></div><h3>{room.title}</h3><div className="quiz-dashboard-stats"><span><b>{players.length}</b> participants</span><span><b>{details?.questions.length || '—'}</b> questions</span><span><b>{average}</b> avg score</span></div><div className="quiz-dashboard-actions"><button className="quiz-button secondary" onClick={() => resumeRoom(room)}>Open room</button><button className="quiz-text-button" onClick={() => editRoom(room)}>Edit quiz</button><button className="quiz-text-button" onClick={() => setSelectedRoomCode(selectedRoomCode === room.code ? '' : room.code)}>Scorecard</button></div>{selectedRoomCode === room.code && <div className="quiz-inline-scorecard"><strong>Participation scorecard</strong>{players.length === 0 ? <p>No participants yet.</p> : players.slice(0, 10).map((player, index) => <div key={player.id}><span>{index + 1}. {player.display_name}</span><b>{player.score}</b></div>)}</div>}</article>; })}</div>}</QuizShell>;
 
   if (mode === 'home') return <QuizShell><div className="quiz-hero"><span className="quiz-kicker"><Sparkles size={16}/> Karthika learning studio</span><h1>Live quizzes for <em>devotion</em> and learning.</h1><p>Host a friendly Bhagavad Gita values quiz, share one game code, and let everyone answer together from their phone.</p><div className="quiz-home-actions"><a className="quiz-button" href="/quiz/host"><Play size={18}/> Host a quiz</a><a className="quiz-button secondary" href="/quiz/join"><Gamepad2 size={18}/> Join a quiz</a></div><div className="quiz-feature-row"><span><Users size={16}/> Live player lobby</span><span><Heart size={16}/> Safe reaction bar</span><span><Check size={16}/> Instant scoring</span></div></div><div className="quiz-card quiz-preview"><div className="quiz-preview-glow"/><div className="quiz-preview-code">GAME CODE <strong>123 456</strong></div><div className="quiz-preview-question">What does a lamp represent in devotion?</div><div className="quiz-preview-options"><span>Love</span><span>Discipline</span><span>Both</span><span>Service</span></div><div className="quiz-reactions"><span>❤️</span><span>🙏</span><span>🪔</span><span>✨</span></div></div></QuizShell>;
 

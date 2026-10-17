@@ -39,13 +39,13 @@ async function hostSession(client: ReturnType<typeof db>, value: unknown, token:
   return current;
 }
 
-async function view(client: ReturnType<typeof db>, current: { id: string; code: string; title: string; status: string; current_question: number; created_at: string }) {
+async function view(client: ReturnType<typeof db>, current: { id: string; code: string; title: string; status: string; current_question: number; created_at: string }, includeAnswers = false) {
   const [{ data: questionRows, error: questionError }, { data: players, error: playerError }] = await Promise.all([
-    client.from('quiz_questions').select('id,position,prompt,options,seconds').eq('session_id', current.id).order('position'),
+    (client.from('quiz_questions') as any).select(includeAnswers ? 'id,position,prompt,options,seconds,correct_index' : 'id,position,prompt,options,seconds').eq('session_id', current.id).order('position'),
     client.from('quiz_players').select('id,display_name,score,joined_at').eq('session_id', current.id).order('score', { ascending: false }).order('joined_at')
   ]);
   if (questionError || playerError) throw new AppError('The live quiz could not be loaded.', 503);
-  const question = questionRows?.find((item) => item.position === current.current_question) || null;
+  const question = questionRows?.find((item: any) => item.position === current.current_question) || null;
   return { session: current, questions: questionRows || [], question, players: players || [] };
 }
 
@@ -97,6 +97,24 @@ export async function POST(request: Request) {
       if (result.error) throw new AppError('Could not update the game.', 503);
       const updated = await session(client, current.code);
       return Response.json(await view(client, updated));
+    }
+    if (body.action === 'loadHost') {
+      const current = await hostSession(client, body.code, body.hostToken);
+      return Response.json(await view(client, current, true));
+    }
+    if (body.action === 'update') {
+      const current = await hostSession(client, body.code, body.hostToken);
+      const title = text(body.title, 'quiz title', 3, 120);
+      const prepared = questions(body.questions);
+      const updated = await client.from('quiz_sessions').update({ title, status: 'lobby', current_question: 0 }).eq('id', current.id);
+      if (updated.error) throw new AppError('Could not update the quiz.', 503);
+      await client.from('quiz_answers').delete().eq('session_id', current.id);
+      await client.from('quiz_players').delete().eq('session_id', current.id);
+      const removed = await client.from('quiz_questions').delete().eq('session_id', current.id);
+      if (removed.error) throw new AppError('Could not replace the quiz questions.', 503);
+      const inserted = await client.from('quiz_questions').insert(prepared.map((item) => ({ ...item, session_id: current.id })));
+      if (inserted.error) throw new AppError('Could not save the updated questions.', 503);
+      return Response.json(await view(client, { ...current, title, status: 'lobby', current_question: 0 }, true));
     }
     if (body.action === 'answer') {
       const current = await session(client, body.code);
