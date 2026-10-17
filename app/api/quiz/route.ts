@@ -10,11 +10,11 @@ function code() {
 }
 
 function questions(value: unknown) {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 50) throw new AppError('Add between 1 and 50 questions.');
+  if (!Array.isArray(value) || value.length < 1 || value.length > 10) throw new AppError('Add between 1 and 10 questions.');
   return value.map((raw, position) => {
     const item = (raw || {}) as IncomingQuestion;
     const prompt = text(item.prompt, `question ${position + 1}`, 3, 500);
-    if (!Array.isArray(item.options) || item.options.length < 2 || item.options.length > 6) throw new AppError(`Question ${position + 1} needs 2 to 6 options.`);
+    if (!Array.isArray(item.options) || item.options.length < 2 || item.options.length > 4) throw new AppError(`Question ${position + 1} needs 2 to 4 options.`);
     const options = item.options.map((option) => text(option, 'answer option', 1, 180));
     const correctIndex = Number(item.correctIndex);
     const seconds = Number(item.seconds || 20);
@@ -80,6 +80,9 @@ export async function POST(request: Request) {
       const current = await session(client, body.code);
       if (current.status !== 'lobby') throw new AppError('This game has already started.', 409);
       const displayName = text(body.displayName, 'display name', 1, 40);
+      const { count, error: countError } = await client.from('quiz_players').select('id', { count: 'exact', head: true }).eq('session_id', current.id);
+      if (countError) throw new AppError('Could not check the room capacity.', 503);
+      if ((count || 0) >= 100) throw new AppError('This room has reached its limit of 100 participants.', 409);
       const result = await client.from('quiz_players').insert({ session_id: current.id, display_name: displayName }).select('id,display_name,score,joined_at').single();
       if (result.error) throw new AppError(result.error.code === '23505' ? 'That display name is already in use.' : 'Could not join this game.', result.error.code === '23505' ? 409 : 503);
       return Response.json({ player: result.data, ...(await view(client, current)) });
