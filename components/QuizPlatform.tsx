@@ -1,7 +1,8 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Check, Copy, Gamepad2, Heart, Play, Sparkles, Users } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 type QuizQuestion = { id: string; position: number; prompt: string; options: string[]; correctIndex?: number; seconds: number };
 type Player = { id: string; display_name: string; score: number; joined_at?: string };
@@ -26,6 +27,7 @@ export default function QuizPlatform() {
   const [mode, setMode] = useState<'home' | 'host' | 'join' | 'hostRoom' | 'playerRoom'>('home');
   const [error, setError] = useState('');
   const [title, setTitle] = useState('Karthika Damodara Values Quiz');
+  const [questionsDraft, setQuestionsDraft] = useState(starterQuestions);
   const [gameCode, setGameCode] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [view, setView] = useState<QuizView | null>(null);
@@ -49,6 +51,44 @@ export default function QuizPlatform() {
     setView(data);
   }
 
+  function downloadTemplate() {
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ['Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Correct Answer', 'Timer Seconds'],
+      ['Who is known as Damodara?', 'Sri Krishna', 'Arjuna', 'Balarama', 'Narada', 'A', 20],
+      ['What do we offer during the Damodara month?', 'A ghee lamp', 'A crown', 'A conch only', 'A flag', 'A', 20]
+    ]);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, 'Questions');
+    XLSX.writeFile(book, 'karthika-quiz-template.xlsx');
+  }
+
+  async function importWorkbook(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setError('');
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+      if (!rows.length || rows.length > 10) throw new Error('The workbook must contain between 1 and 10 question rows.');
+      const imported = rows.map((row, index) => {
+        const value = (name: string) => String(row[name] ?? row[name.toLowerCase()] ?? '').trim();
+        const options = ['Option A', 'Option B', 'Option C', 'Option D'].map(value).filter(Boolean);
+        if (!value('Question') || options.length < 2) throw new Error(`Row ${index + 2} needs a question and at least 2 options.`);
+        const correct = value('Correct Answer').toUpperCase();
+        const letterIndex = ['A', 'B', 'C', 'D'].indexOf(correct);
+        const textIndex = options.findIndex((option) => option.toLowerCase() === correct.toLowerCase());
+        const correctIndex = letterIndex >= 0 && letterIndex < options.length ? letterIndex : textIndex;
+        if (correctIndex < 0) throw new Error(`Row ${index + 2} must have Correct Answer A, B, C, or D.`);
+        const seconds = Number(value('Timer Seconds') || 20);
+        if (!Number.isInteger(seconds) || seconds < 5 || seconds > 240) throw new Error(`Row ${index + 2} timer must be between 5 and 240 seconds.`);
+        return { prompt: value('Question'), options, correctIndex, seconds };
+      });
+      setQuestionsDraft(imported);
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not read that workbook.'); }
+  }
+
   useEffect(() => {
     if (mode !== 'hostRoom' && mode !== 'playerRoom') return;
     const timer = window.setInterval(() => { refresh().catch(() => undefined); }, 1800);
@@ -69,7 +109,7 @@ export default function QuizPlatform() {
 
   async function createQuiz(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError('');
-    try { const data = await callApi({ action: 'create', title, questions: starterQuestions }); setView(data); setHostToken(data.hostToken); setGameCode(data.session.code); setMode('hostRoom'); }
+    try { const data = await callApi({ action: 'create', title, questions: questionsDraft }); setView(data); setHostToken(data.hostToken); setGameCode(data.session.code); setMode('hostRoom'); }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not create the quiz.'); }
     finally { setBusy(false); }
   }
@@ -101,7 +141,7 @@ export default function QuizPlatform() {
 
   if (mode === 'home') return <QuizShell><div className="quiz-hero"><span className="quiz-kicker"><Sparkles size={16}/> Karthika learning studio</span><h1>Live quizzes for <em>devotion</em> and learning.</h1><p>Host a friendly Bhagavad Gita values quiz, share one game code, and let everyone answer together from their phone.</p><div className="quiz-home-actions"><button className="quiz-button" onClick={() => { setMode('host'); setError(''); }}><Play size={18}/> Host a quiz</button><button className="quiz-button secondary" onClick={() => { setMode('join'); setError(''); }}><Gamepad2 size={18}/> Join a quiz</button></div><div className="quiz-feature-row"><span><Users size={16}/> Live player lobby</span><span><Heart size={16}/> Safe reaction bar</span><span><Check size={16}/> Instant scoring</span></div></div><div className="quiz-card quiz-preview"><div className="quiz-preview-glow"/><div className="quiz-preview-code">GAME CODE <strong>123 456</strong></div><div className="quiz-preview-question">What does a lamp represent in devotion?</div><div className="quiz-preview-options"><span>Love</span><span>Discipline</span><span>Both</span><span>Service</span></div><div className="quiz-reactions"><span>❤️</span><span>🙏</span><span>🪔</span><span>✨</span></div></div></QuizShell>;
 
-  if (mode === 'host') return <QuizShell><Back onClick={() => setMode('home')}/><div className="quiz-card quiz-form-card"><span className="quiz-kicker">Host a room</span><h2>Create a live quiz</h2><p>We’ll start with a ready-made Karthika values quiz. Question editing and media uploads are next in the build.</p><form onSubmit={createQuiz}><label className="quiz-field">Quiz title<input value={title} onChange={(event) => setTitle(event.target.value)} required maxLength={120}/></label>{error && <div className="quiz-error">{error}</div>}<button className="quiz-button" disabled={busy}>{busy ? 'Creating…' : 'Create live room'} <ArrowRight size={17}/></button></form></div></QuizShell>;
+  if (mode === 'host') return <QuizShell><Back onClick={() => setMode('home')}/><div className="quiz-card quiz-form-card"><span className="quiz-kicker">Host a room</span><h2>Create a live quiz</h2><p>Type questions yourself or import up to 10 questions from an Excel workbook.</p><form onSubmit={createQuiz}><label className="quiz-field">Quiz title<input value={title} onChange={(event) => setTitle(event.target.value)} required maxLength={120}/></label><div className="quiz-import-tools"><button type="button" className="quiz-button secondary" onClick={downloadTemplate}>Download Excel template</button><label className="quiz-upload">Import Excel workbook<input type="file" accept=".xlsx,.xls,.csv" onChange={importWorkbook}/></label></div><div className="quiz-import-help">Columns: <b>Question, Option A, Option B, Option C, Option D, Correct Answer, Timer Seconds</b>. Correct Answer can be A, B, C, or D.</div><div className="quiz-question-preview"><strong>{questionsDraft.length} question{questionsDraft.length === 1 ? '' : 's'} ready</strong>{questionsDraft.map((question, index) => <div key={`${question.prompt}-${index}`}><span>{index + 1}</span>{question.prompt}<small>{question.options.length} options · {question.seconds}s</small></div>)}</div>{error && <div className="quiz-error">{error}</div>}<button className="quiz-button" disabled={busy || questionsDraft.length === 0}>{busy ? 'Creating…' : 'Create live room'} <ArrowRight size={17}/></button></form></div></QuizShell>;
 
   if (mode === 'join') return <QuizShell><Back onClick={() => setMode('home')}/><div className="quiz-card quiz-form-card"><span className="quiz-kicker">Join a room</span><h2>Enter the game code</h2><p>Use the six-digit code shown by the host.</p><form onSubmit={joinQuiz}><label className="quiz-field">Game code<input value={gameCode} onChange={(event) => setGameCode(event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" required placeholder="123456"/></label><label className="quiz-field">Your display name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} required maxLength={40} placeholder="e.g. Radha"/></label>{error && <div className="quiz-error">{error}</div>}<button className="quiz-button" disabled={busy}>{busy ? 'Joining…' : 'Join quiz'} <ArrowRight size={17}/></button></form></div></QuizShell>;
 
