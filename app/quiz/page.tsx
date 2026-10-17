@@ -6,5 +6,5 @@ export const metadata = {
 };
 
 export default function QuizPage() {
-  return <QuizPlatform />;
+  return <QuizPlatform initialMode="join" lockedMode="join" />;
 }
