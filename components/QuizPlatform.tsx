@@ -11,6 +11,7 @@ type HostRoom = { code: string; title: string; hostToken: string; status: 'lobby
 
 const starterQuestions: { prompt: string; options: string[]; correctIndex: number; seconds: number }[] = [];
 const emptyQuestion = { prompt: '', options: ['', '', '', ''], correctIndex: 0, seconds: 30 };
+const removedQuizCodes = new Set(['756917']);
 
 async function callApi(body: Record<string, unknown>) {
   const response = await fetch('/api/quiz', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -51,7 +52,9 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
   useEffect(() => {
     try {
       const stored = JSON.parse(window.localStorage.getItem('karthikaQuizHostRooms') || '[]');
-      setSavedRooms(Array.isArray(stored) ? stored.filter((room): room is HostRoom => Boolean(room && typeof room.code === 'string' && typeof room.hostToken === 'string')) : []);
+      const rooms = Array.isArray(stored) ? stored.filter((room): room is HostRoom => Boolean(room && typeof room.code === 'string' && typeof room.hostToken === 'string' && !removedQuizCodes.has(room.code))) : [];
+      setSavedRooms(rooms);
+      window.localStorage.setItem('karthikaQuizHostRooms', JSON.stringify(rooms));
     } catch { setSavedRooms([]); }
   }, []);
 
