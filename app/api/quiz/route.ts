@@ -27,7 +27,11 @@ function questions(value: unknown) {
 async function session(client: ReturnType<typeof db>, value: unknown) {
   const identifier = text(value, 'game code', 6, 6);
   const { data, error } = await client.from('quiz_sessions').select('id,code,title,status,current_question,created_at,question_started_at').eq('code', identifier).maybeSingle();
-  if (error || !data) throw new AppError('Game code not found.', 404);
+  if (error) {
+    console.error('Quiz session lookup failed:', error.message);
+    throw new AppError('The quiz database needs the latest quiz migration. Run supabase/migrations/20261018_quiz_timing.sql in Supabase SQL Editor.', 503);
+  }
+  if (!data) throw new AppError('Game code not found.', 404);
   return data;
 }
 
