@@ -61,19 +61,6 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
     window.localStorage.setItem('karthikaQuizHostRooms', JSON.stringify(next));
   }
 
-  function forgetRoom(code: string) {
-    setSavedRooms((current) => {
-      const next = current.filter((room) => room.code !== code);
-      window.localStorage.setItem('karthikaQuizHostRooms', JSON.stringify(next));
-      return next;
-    });
-    setRoomViews((current) => {
-      const next = { ...current };
-      delete next[code];
-      return next;
-    });
-  }
-
   function saveManualQuestion() {
     const prompt = manualQuestion.prompt.trim();
     const options = manualQuestion.options.map((option) => option.trim()).filter(Boolean);
@@ -146,17 +133,10 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
   useEffect(() => {
     if ((mode !== 'hostDashboard' && mode !== 'host') || savedRooms.length === 0) return;
     const loadRooms = () => Promise.all(savedRooms.map(async (room) => {
-      try { const response = await fetch(`/api/quiz?code=${encodeURIComponent(room.code)}`, { cache: 'no-store' }); const data = await response.json(); return { room, data, missing: response.status === 404 && data?.error === 'Game code not found.' }; }
+      try { const response = await fetch(`/api/quiz?code=${encodeURIComponent(room.code)}`, { cache: 'no-store' }); const data = await response.json(); return response.ok && data?.session ? [room.code, data] as const : null; }
       catch { return null; }
     })).then((items) => {
-      const valid = items.filter((item): item is { room: HostRoom; data: QuizView; missing: boolean } => Boolean(item));
-      const missingCodes = new Set(valid.filter((item) => item.missing).map((item) => item.room.code));
-      if (missingCodes.size > 0) {
-        const nextRooms = savedRooms.filter((room) => !missingCodes.has(room.code));
-        setSavedRooms(nextRooms);
-        window.localStorage.setItem('karthikaQuizHostRooms', JSON.stringify(nextRooms));
-      }
-      setRoomViews(Object.fromEntries(valid.filter((item) => !item.missing && item.data?.session).map((item) => [item.room.code, item.data])));
+      setRoomViews(Object.fromEntries(items.filter((item): item is readonly [string, QuizView] => Boolean(item))));
     });
     loadRooms();
     const timer = window.setInterval(loadRooms, 5000);
@@ -201,7 +181,6 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
     try { await refresh(room.code); setGameCode(room.code); setHostToken(room.hostToken); setMode('hostRoom'); }
     catch (err) {
       const message = err instanceof Error ? err.message : 'Could not open that room.';
-      if (message === 'Game code not found.') forgetRoom(room.code);
       setError(message);
     }
     finally { setBusy(false); }
