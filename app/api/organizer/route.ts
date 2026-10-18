@@ -6,7 +6,8 @@ export const dynamic = 'force-dynamic';
 async function allRows(table: string, columns: string) {
   const client = db(); const rows: Record<string, any>[] = [];
   for (let from = 0; ; from += 1000) {
-    let query = client.from(table).select(columns).order(table === 'attendance' ? 'attendance_date' : 'id');
+    const orderColumn = table === 'attendance' ? 'attendance_date' : table === 'participants' ? 'created_at' : 'id';
+    let query = client.from(table).select(columns).order(orderColumn, { ascending: table !== 'participants' });
     if (table === 'attendance') query = query.order('participant_id');
     const { data, error } = await query.range(from, from + 999);
     if (error) throw new AppError('The organizer records could not be loaded.', 503);
