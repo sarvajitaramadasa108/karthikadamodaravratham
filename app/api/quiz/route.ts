@@ -1,4 +1,4 @@
-import { AppError, db, fail, hash, sameOrigin, text } from '@/lib/server';
+import { AppError, db, fail, hash, requireOrganizer, sameOrigin, text } from '@/lib/server';
 import { randomInt, randomBytes } from 'node:crypto';
 
 export const dynamic = 'force-dynamic';
@@ -62,6 +62,12 @@ async function view(client: ReturnType<typeof db>, current: { id: string; code: 
 export async function GET(request: Request) {
   try {
     const client = db();
+    if (new URL(request.url).searchParams.get('list') === '1') {
+      await requireOrganizer();
+      const { data, error } = await client.from('quiz_sessions').select('code,title,status,created_at').order('created_at', { ascending: false });
+      if (error) throw new AppError('Could not load the saved quizzes.', 503);
+      return Response.json({ sessions: data || [] }, { headers: { 'Cache-Control': 'no-store' } });
+    }
     const current = await session(client, new URL(request.url).searchParams.get('code'));
     return Response.json(await view(client, current), { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) { return fail(error); }
@@ -112,6 +118,14 @@ export async function POST(request: Request) {
     if (body.action === 'loadHost') {
       const current = await hostSession(client, body.code, body.hostToken);
       return Response.json(await view(client, current, true));
+    }
+    if (body.action === 'recover') {
+      await requireOrganizer();
+      const current = await session(client, body.code);
+      const hostToken = randomBytes(24).toString('base64url');
+      const updated = await client.from('quiz_sessions').update({ host_token_hash: hash(hostToken) }).eq('id', current.id);
+      if (updated.error) throw new AppError('Could not reconnect the quiz.', 503);
+      return Response.json({ ...(await view(client, current, true)), hostToken });
     }
     if (body.action === 'restart') {
       const current = await hostSession(client, body.code, body.hostToken);
