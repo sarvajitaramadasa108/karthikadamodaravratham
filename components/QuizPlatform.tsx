@@ -6,11 +6,11 @@ import * as XLSX from 'xlsx';
 
 type QuizQuestion = { id: string; position: number; prompt: string; options: string[]; correctIndex?: number; seconds: number };
 type Player = { id: string; display_name: string; score: number; joined_at?: string };
-type QuizView = { session: { id: string; code: string; title: string; status: 'lobby' | 'live' | 'finished'; current_question: number; created_at?: string }; questions: QuizQuestion[]; question: QuizQuestion | null; players: Player[] };
+type QuizView = { session: { id: string; code: string; title: string; status: 'lobby' | 'live' | 'finished'; current_question: number; created_at?: string }; questions: QuizQuestion[]; question: QuizQuestion | null; players: Player[]; phase?: 'countdown' | 'question' | 'result' | 'next'; secondsRemaining?: number };
 type HostRoom = { code: string; title: string; hostToken: string; status: 'lobby' | 'live' | 'finished'; createdAt: string };
 
 const starterQuestions: { prompt: string; options: string[]; correctIndex: number; seconds: number }[] = [];
-const emptyQuestion = { prompt: '', options: ['', '', '', ''], correctIndex: 0, seconds: 20 };
+const emptyQuestion = { prompt: '', options: ['', '', '', ''], correctIndex: 0, seconds: 30 };
 
 async function callApi(body: Record<string, unknown>) {
   const response = await fetch('/api/quiz', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -36,6 +36,7 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
   const [answered, setAnswered] = useState<number | null>(null);
   const [reaction, setReaction] = useState('');
   const [remaining, setRemaining] = useState(0);
+  const [answerFeedback, setAnswerFeedback] = useState<{ correct: boolean; points: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [savedRooms, setSavedRooms] = useState<HostRoom[]>([]);
   const [roomViews, setRoomViews] = useState<Record<string, QuizView>>({});
@@ -81,8 +82,8 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
   function downloadTemplate() {
     const sheet = XLSX.utils.aoa_to_sheet([
       ['Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Correct Answer', 'Timer Seconds'],
-      ['Who is known as Damodara?', 'Sri Krishna', 'Arjuna', 'Balarama', 'Narada', 'A', 20],
-      ['What do we offer during the Damodara month?', 'A ghee lamp', 'A crown', 'A conch only', 'A flag', 'A', 20]
+      ['Who is known as Damodara?', 'Sri Krishna', 'Arjuna', 'Balarama', 'Narada', 'A', 30],
+      ['What do we offer during the Damodara month?', 'A ghee lamp', 'A crown', 'A conch only', 'A flag', 'A', 30]
     ]);
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, sheet, 'Questions');
@@ -123,6 +124,10 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
   }, [mode, roomCode]);
 
   useEffect(() => {
+    if (mode === 'hostRoom' && view?.phase === 'next' && !busy) hostAction('next').catch(() => undefined);
+  }, [mode, view?.phase, view?.session.current_question]);
+
+  useEffect(() => {
     if ((mode !== 'hostDashboard' && mode !== 'host') || savedRooms.length === 0) return;
     const loadRooms = () => Promise.all(savedRooms.map(async (room) => {
       try { const response = await fetch(`/api/quiz?code=${room.code}`, { cache: 'no-store' }); const data = await response.json(); return [room.code, data] as const; }
@@ -134,8 +139,8 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
   }, [mode, savedRooms]);
 
   useEffect(() => {
-    if (!current || view?.session.status !== 'live') { setRemaining(0); return; }
-    let left = current.seconds;
+    if (!current || view?.session.status !== 'live' || (view.phase !== 'question' && view.phase !== 'countdown')) { setRemaining(0); return; }
+    let left = view.secondsRemaining ?? (view.phase === 'countdown' ? 3 : current.seconds);
     setRemaining(left);
     const timer = window.setInterval(() => {
       left -= 1;
@@ -143,7 +148,7 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
       if (left <= 0) window.clearInterval(timer);
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [current?.id, view?.session.status]);
+  }, [current?.id, view?.session.status, view?.phase, view?.secondsRemaining]);
 
   async function createQuiz(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError('');
@@ -183,12 +188,12 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
   async function answer(index: number) {
     if (!current || answered !== null || remaining <= 0) return;
     setBusy(true); setError('');
-    try { await callApi({ action: 'answer', code: roomCode, playerId, answerIndex: index }); setAnswered(index); await refresh(); }
+    try { const result = await callApi({ action: 'answer', code: roomCode, playerId, answerIndex: index }); setAnswered(index); setAnswerFeedback({ correct: result.correct, points: result.points }); window.setTimeout(() => setAnswerFeedback(null), 5000); await refresh(); }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not record that answer.'); }
     finally { setBusy(false); }
   }
 
-  function resetForNext() { setAnswered(null); setReaction(''); }
+  function resetForNext() { setAnswered(null); setReaction(''); setAnswerFeedback(null); }
   useEffect(() => { resetForNext(); }, [view?.session.current_question]);
 
   if (mode === 'hostDashboard') return <QuizShell><div className="quiz-dashboard-heading"><div><span className="quiz-kicker">Host dashboard</span><h2>Your quizzes</h2><p>Monitor participation, open a live room, review scores, or edit a quiz.</p></div><button className="quiz-button" onClick={() => { setEditingCode(''); setQuestionsDraft(starterQuestions); setManualQuestion(emptyQuestion); setEditingQuestionIndex(null); setMode('host'); }}><Sparkles size={17}/> Create quiz</button></div>{error && <div className="quiz-error">{error}</div>}{savedRooms.length === 0 ? <div className="quiz-card quiz-empty-dashboard"><Gamepad2 size={30}/><h3>No quizzes created yet</h3><p>Create your first Karthika values quiz and it will appear here.</p><button className="quiz-button" onClick={() => setMode('host')}>Create your first quiz</button></div> : <div className="quiz-dashboard-grid">{savedRooms.map((room) => { const details = roomViews[room.code]; const players = details?.players || []; const status = details?.session.status || room.status; const average = players.length ? Math.round(players.reduce((sum, player) => sum + player.score, 0) / players.length) : 0; return <article className="quiz-card quiz-dashboard-card" key={room.code}><div className="quiz-dashboard-card-top"><span className={`quiz-status ${status}`}>{status}</span><strong>{room.code}</strong></div><h3>{room.title}</h3><div className="quiz-dashboard-stats"><span><b>{players.length}</b> participants</span><span><b>{details?.questions.length || '—'}</b> questions</span><span><b>{average}</b> avg score</span></div><div className="quiz-dashboard-actions"><button className="quiz-button secondary" onClick={() => resumeRoom(room)}>Open room</button><button className="quiz-text-button" onClick={() => editRoom(room)}>Edit quiz</button><button className="quiz-text-button" onClick={() => setSelectedRoomCode(selectedRoomCode === room.code ? '' : room.code)}>Scorecard</button></div>{selectedRoomCode === room.code && <div className="quiz-inline-scorecard"><strong>Participation scorecard</strong>{players.length === 0 ? <p>No participants yet.</p> : players.slice(0, 10).map((player, index) => <div key={player.id}><span>{index + 1}. {player.display_name}</span><b>{player.score}</b></div>)}</div>}</article>; })}</div>}</QuizShell>;
@@ -199,14 +204,28 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
 
   if (mode === 'join') return <QuizShell><Back onClick={() => { window.location.href = lockedMode ? '/quiz' : '/quiz'; }}/><div className="quiz-card quiz-form-card"><span className="quiz-kicker">Participant entry</span><h2>Enter the game code</h2><p>Use the six-digit code shown by the host.</p><form onSubmit={joinQuiz}><label className="quiz-field">Game code<input value={gameCode} onChange={(event) => setGameCode(event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" required placeholder="123456"/></label><label className="quiz-field">Your display name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} required maxLength={40} placeholder="e.g. Radha"/></label>{error && <div className="quiz-error">{error}</div>}<button className="quiz-button" disabled={busy}>{busy ? 'Joining…' : 'Join quiz'} <ArrowRight size={17}/></button></form></div></QuizShell>;
 
-  return <QuizShell dashboardLink={isHost}><div className="quiz-room-top"><div><span className="quiz-kicker">{isHost ? 'Host room' : 'Player room'}</span><h2>{view?.session.title}</h2></div><div className="quiz-code"><small>GAME CODE</small><strong>{roomCode}</strong><button onClick={() => copyText(roomCode)} aria-label="Copy game code"><Copy size={15}/></button></div></div>{error && <div className="quiz-error">{error}</div>}{view?.session.status === 'lobby' && <div className="quiz-card quiz-lobby"><Users size={28}/><h3>Waiting room</h3><p>Share the code with everyone. Players can join from any phone.</p><div className="player-pills">{view.players.map((player) => <span key={player.id}>{player.display_name}</span>)}{view.players.length === 0 && <span className="muted-pill">No players yet</span>}</div>{isHost ? <button className="quiz-button" onClick={() => hostAction('start')} disabled={busy || view.players.length === 0}><Play size={17}/> {busy ? 'Starting…' : 'Start quiz'}</button> : <div className="quiz-waiting">You’re in. Wait for the host to start.</div>}</div>}{view?.session.status === 'live' && current && <div className="quiz-live-grid"><div className="quiz-card quiz-question-card"><div className="question-meta"><span>Question {current.position + 1} of {view.questions.length}</span><span className={remaining <= 5 ? 'timer-danger' : ''}>⏱ {remaining}s</span></div><div className="quiz-timer"><span style={{ width: `${Math.max(0, Math.min(100, remaining / current.seconds * 100))}%` }}/></div><h3>{current.prompt}</h3><div className="answer-grid">{current.options.map((option, index) => <button key={option} className={answered === index ? 'selected' : ''} onClick={() => answer(index)} disabled={isHost || answered !== null || busy || remaining <= 0}>{String.fromCharCode(65 + index)}. {option}</button>)}</div><div className="quiz-reactions"><span>React</span>{['❤️', '🙏', '🪔', '✨', '👏'].map((item) => <button key={item} className={reaction === item ? 'selected' : ''} onClick={() => setReaction(item)}>{item}</button>)}</div>{isHost ? <button className="quiz-button" onClick={() => hostAction('next')} disabled={busy}>{current.position + 1 === view.questions.length ? 'Show results' : 'Next question'} <ArrowRight size={17}/></button> : answered !== null ? <div className="quiz-waiting">Answer received. Watch the host screen for the next question.</div> : remaining <= 0 && <div className="quiz-waiting">Time is up. Wait for the next question.</div>}</div><Scoreboard players={sortedPlayers}/></div>}{view?.session.status === 'finished' && <div className="quiz-card quiz-results"><span className="quiz-kicker">Quiz complete</span><h2>Well done, everyone.</h2><Scoreboard players={sortedPlayers}/><button className="quiz-button" onClick={() => { setMode('home'); setView(null); }}>Create another quiz</button></div>}</QuizShell>;
+  return <QuizShell dashboardLink={isHost}><div className="quiz-room-top"><div><span className="quiz-kicker">{isHost ? 'Host room' : 'Player room'}</span><h2>{view?.session.title}</h2></div><div className="quiz-code"><small>GAME CODE</small><strong>{roomCode}</strong><button onClick={() => copyText(roomCode)} aria-label="Copy game code"><Copy size={15}/></button></div></div>{error && <div className="quiz-error">{error}</div>}{view?.session.status === 'lobby' && <div className="quiz-card quiz-lobby"><Users size={28}/><h3>Waiting room</h3><p>Share the code with everyone. Players can join from any phone.</p><div className="player-pills">{view.players.map((player) => <span key={player.id}>{player.display_name}</span>)}{view.players.length === 0 && <span className="muted-pill">No players yet</span>}</div>{isHost ? <button className="quiz-button" onClick={() => hostAction('start')} disabled={busy || view.players.length === 0}><Play size={17}/> {busy ? 'Starting…' : 'Start quiz'}</button> : <div className="quiz-waiting">You’re in. Wait for the host to start.</div>}</div>}{view?.session.status === 'live' && current && <div className="quiz-live-grid"><div className="quiz-card quiz-question-card"><PhaseOverlay phase={view.phase} remaining={remaining} feedback={answerFeedback} players={sortedPlayers} playerId={playerId}/><div className="question-meta"><span>Question {current.position + 1} of {view.questions.length}</span><span className={remaining <= 5 ? 'timer-danger' : ''}>⏱ {remaining}s</span></div><div className="quiz-timer"><span style={{ width: `${Math.max(0, Math.min(100, remaining / current.seconds * 100))}%` }}/></div><h3>{current.prompt}</h3><div className="answer-grid">{current.options.map((option, index) => <button key={option} className={answered === index ? 'selected' : ''} onClick={() => answer(index)} disabled={isHost || answered !== null || busy || remaining <= 0 || view.phase !== 'question'}>{String.fromCharCode(65 + index)}. {option}</button>)}</div><div className="quiz-reactions"><span>React</span>{['❤️', '🙏', '🪔', '✨', '👏'].map((item) => <button key={item} className={reaction === item ? 'selected' : ''} onClick={() => setReaction(item)}>{item}</button>)}</div>{isHost ? <button className="quiz-button" onClick={() => hostAction('next')} disabled={busy}>{current.position + 1 === view.questions.length ? 'Show results' : 'Next question'} <ArrowRight size={17}/></button> : answered !== null ? <div className="quiz-waiting">Answer received. Watch the host screen for the next question.</div> : remaining <= 0 && <div className="quiz-waiting">Time is up. Wait for the next question.</div>}</div><Scoreboard players={sortedPlayers}/></div>}{view?.session.status === 'finished' && <div className="quiz-card quiz-results"><span className="quiz-kicker">Quiz complete</span><h2>Well done, everyone.</h2><Scoreboard players={sortedPlayers}/><button className="quiz-button" onClick={() => { setMode('home'); setView(null); }}>Create another quiz</button></div>}</QuizShell>;
 }
 
 function Scoreboard({ players }: { players: Player[] }) { return <aside className="quiz-card quiz-scoreboard"><h3>Leaderboard</h3>{players.length === 0 ? <p className="muted-pill">Waiting for players</p> : players.map((player, index) => <div className="score-row" key={player.id}><strong>{index + 1}</strong><span>{player.display_name}</span><b>{player.score}</b></div>)}</aside>; }
+function PhaseOverlay({ phase, remaining, feedback, players, playerId }: { phase?: QuizView['phase']; remaining: number; feedback: { correct: boolean; points: number } | null; players: Player[]; playerId: string }) {
+  if (feedback) {
+    const ranked = [...players].sort((a, b) => b.score - a.score);
+    const top = ranked.slice(0, 3);
+    const ownIndex = ranked.findIndex((player) => player.id === playerId);
+    const own = ownIndex >= 3 ? ranked[ownIndex] : null;
+    return <div className="quiz-phase-overlay quiz-feedback-overlay"><div className={`feedback-symbol ${feedback.correct ? 'correct' : 'wrong'}`}>{feedback.correct ? '✓' : '✕'}</div><h3>{feedback.correct ? 'Correct answer!' : 'Wrong answer'}</h3><strong className="feedback-points">+{feedback.points} points</strong>{feedback.correct && <div className="celebration-ribbons">✦ ✧ ✦ ✧ ✦</div>}<div className="mini-leaderboard">{top.map((player, index) => <div key={player.id}><span>{index + 1}. {player.display_name}</span><b>{player.score}</b></div>)}{own && <div className="own-rank"><span>{ownIndex + 1}. {own.display_name} (you)</span><b>{own.score}</b></div>}</div></div>;
+  }
+  if (phase === 'countdown') return <div className="quiz-phase-overlay countdown-overlay"><small>Get ready</small><strong>{remaining || 3}</strong></div>;
+  if (phase === 'result') return <div className="quiz-phase-overlay result-overlay"><small>Leaderboard</small><div className="mini-leaderboard">{players.slice(0, 3).map((player, index) => <div key={player.id}><span>{index + 1}. {player.display_name}</span><b>{player.score}</b></div>)}</div></div>;
+  return null;
+}
 function ManualQuestionEditor({ questions, draft, setDraft, editingIndex, onSave, onEdit, onRemove }: { questions: { prompt: string; options: string[]; correctIndex: number; seconds: number }[]; draft: { prompt: string; options: string[]; correctIndex: number; seconds: number }; setDraft: (value: { prompt: string; options: string[]; correctIndex: number; seconds: number }) => void; editingIndex: number | null; onSave: () => void; onEdit: (index: number) => void; onRemove: (index: number) => void }) {
   return <div className="manual-question-editor"><div className="manual-question-heading"><strong>{editingIndex === null ? 'Add question manually' : 'Edit question'}</strong><span>{questions.length}/10 questions</span></div><input className="manual-question-prompt" value={draft.prompt} onChange={(event) => setDraft({ ...draft, prompt: event.target.value })} placeholder="Question text" maxLength={500}/><div className="manual-option-grid">{draft.options.map((option, index) => <label key={index}>Option {String.fromCharCode(65 + index)}<input value={option} onChange={(event) => { const options = [...draft.options]; options[index] = event.target.value; setDraft({ ...draft, options }); }} placeholder={`Answer ${String.fromCharCode(65 + index)}`} maxLength={180}/><span><input type="radio" name="manual-correct" checked={draft.correctIndex === index} onChange={() => setDraft({ ...draft, correctIndex: index })}/> Correct answer</span></label>)}</div><div className="manual-question-footer"><label>Timer seconds<input type="number" min="5" max="240" value={draft.seconds} onChange={(event) => setDraft({ ...draft, seconds: Number(event.target.value) })}/></label><button type="button" className="quiz-button secondary" onClick={onSave} disabled={questions.length >= 10 && editingIndex === null}>{editingIndex === null ? 'Add question' : 'Save changes'}</button></div>{questions.length > 0 && <div className="manual-question-list">{questions.map((question, index) => <div key={`${question.prompt}-${index}`}><span>{index + 1}. {question.prompt}<small>{question.options.length} options · correct {String.fromCharCode(65 + question.correctIndex)}</small></span><button type="button" className="quiz-text-button" onClick={() => onEdit(index)}>Edit</button><button type="button" className="quiz-text-button remove" onClick={() => onRemove(index)}>Remove</button></div>)}</div>}</div>;
 }
 function Back({ onClick }: { onClick: () => void }) { return <button className="quiz-back" onClick={onClick}>← Back</button>; }
 function QuizShell({ children, dashboardLink = false }: { children: React.ReactNode; dashboardLink?: boolean }) { return <main className="quiz-page"><header className="quiz-header"><a href="/" className="quiz-brand"><span>🪔</span><b>Karthika Quiz</b><small>Hare Krishna Vaikuntham</small></a><div className="quiz-header-links">{dashboardLink && <a href="/quizhost" className="quiz-home-link">Quiz dashboard</a>}<a href="/" className="quiz-home-link">Back to challenge</a></div></header><div className="quiz-wrap">{children}</div><footer className="quiz-footer">A simple live learning space for the Karthika Damodara Challenge.</footer></main>; }
+
+
 
 

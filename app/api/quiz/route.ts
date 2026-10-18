@@ -17,7 +17,7 @@ function questions(value: unknown) {
     if (!Array.isArray(item.options) || item.options.length < 2 || item.options.length > 4) throw new AppError(`Question ${position + 1} needs 2 to 4 options.`);
     const options = item.options.map((option) => text(option, 'answer option', 1, 180));
     const correctIndex = Number(item.correctIndex);
-    const seconds = Number(item.seconds || 20);
+    const seconds = Number(item.seconds || 30);
     if (!Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex >= options.length) throw new AppError(`Choose a correct answer for question ${position + 1}.`);
     if (!Number.isInteger(seconds) || seconds < 5 || seconds > 240) throw new AppError('Question timers must be between 5 and 240 seconds.');
     return { position, prompt, options, correct_index: correctIndex, seconds };
@@ -26,7 +26,7 @@ function questions(value: unknown) {
 
 async function session(client: ReturnType<typeof db>, value: unknown) {
   const identifier = text(value, 'game code', 6, 6);
-  const { data, error } = await client.from('quiz_sessions').select('id,code,title,status,current_question,created_at').eq('code', identifier).maybeSingle();
+  const { data, error } = await client.from('quiz_sessions').select('id,code,title,status,current_question,created_at,question_started_at').eq('code', identifier).maybeSingle();
   if (error || !data) throw new AppError('Game code not found.', 404);
   return data;
 }
@@ -39,14 +39,20 @@ async function hostSession(client: ReturnType<typeof db>, value: unknown, token:
   return current;
 }
 
-async function view(client: ReturnType<typeof db>, current: { id: string; code: string; title: string; status: string; current_question: number; created_at: string }, includeAnswers = false) {
+async function view(client: ReturnType<typeof db>, current: { id: string; code: string; title: string; status: string; current_question: number; created_at: string; question_started_at?: string | null }, includeAnswers = false) {
   const [{ data: questionRows, error: questionError }, { data: players, error: playerError }] = await Promise.all([
     (client.from('quiz_questions') as any).select(includeAnswers ? 'id,position,prompt,options,seconds,correct_index' : 'id,position,prompt,options,seconds').eq('session_id', current.id).order('position'),
     client.from('quiz_players').select('id,display_name,score,joined_at').eq('session_id', current.id).order('score', { ascending: false }).order('joined_at')
   ]);
   if (questionError || playerError) throw new AppError('The live quiz could not be loaded.', 503);
   const question = questionRows?.find((item: any) => item.position === current.current_question) || null;
-  return { session: current, questions: questionRows || [], question, players: players || [] };
+  const now = Date.now();
+  const started = current.question_started_at ? new Date(current.question_started_at).getTime() : 0;
+  const duration = question?.seconds || 30;
+  const elapsed = started ? (now - started) / 1000 : 0;
+  const phase = !started || elapsed < 0 ? 'countdown' : elapsed < duration ? 'question' : elapsed < duration + 5 ? 'result' : 'next';
+  const secondsRemaining = phase === 'countdown' ? Math.max(0, Math.ceil(-elapsed)) : phase === 'question' ? Math.max(0, Math.ceil(duration - elapsed)) : 0;
+  return { session: current, questions: questionRows || [], question, players: players || [], phase, secondsRemaining };
 }
 
 export async function GET(request: Request) {
@@ -93,7 +99,8 @@ export async function POST(request: Request) {
       const total = count || 0;
       const nextPosition = body.action === 'start' ? 0 : current.current_question + 1;
       const status = nextPosition >= total ? 'finished' : 'live';
-      const result = await client.from('quiz_sessions').update({ status, current_question: Math.min(nextPosition, Math.max(0, total - 1)) }).eq('id', current.id);
+      const nextQuestion = Math.min(nextPosition, Math.max(0, total - 1));
+      const result = await client.from('quiz_sessions').update({ status, current_question: nextQuestion, question_started_at: status === 'live' ? new Date(Date.now() + 3000).toISOString() : null }).eq('id', current.id);
       if (result.error) throw new AppError('Could not update the game.', 503);
       const updated = await session(client, current.code);
       return Response.json(await view(client, updated));
@@ -122,13 +129,19 @@ export async function POST(request: Request) {
       if (current.status !== 'live') throw new AppError('This question is not accepting answers.', 409);
       const playerId = text(body.playerId, 'player ID', 36, 36);
       const answerIndex = Number(body.answerIndex);
-      const { data: question, error: questionError } = await client.from('quiz_questions').select('id,correct_index').eq('session_id', current.id).eq('position', current.current_question).single();
+      const { data: question, error: questionError } = await client.from('quiz_questions').select('id,correct_index,seconds').eq('session_id', current.id).eq('position', current.current_question).single();
       if (questionError || !question || !Number.isInteger(answerIndex) || answerIndex < 0 || answerIndex > 5) throw new AppError('That answer is not valid.');
+      const startedAt = current.question_started_at ? new Date(current.question_started_at).getTime() : Date.now();
+      const durationMs = Number(question.seconds || 30) * 1000;
+      if (Date.now() < startedAt) throw new AppError('The question is about to start.');
+      if (Date.now() >= startedAt + durationMs) throw new AppError('Time is up for this question.');
+      const secondsRemaining = Math.max(0, Math.ceil((startedAt + durationMs - Date.now()) / 1000));
       const correct = answerIndex === question.correct_index;
-      const result = await client.from('quiz_answers').insert({ session_id: current.id, question_id: question.id, player_id: playerId, answer_index: answerIndex, correct });
+      const points = correct ? secondsRemaining * 5 : 0;
+      const result = await client.from('quiz_answers').insert({ session_id: current.id, question_id: question.id, player_id: playerId, answer_index: answerIndex, correct, points });
       if (result.error) throw new AppError(result.error.code === '23505' ? 'You already answered this question.' : 'Could not record your answer.', result.error.code === '23505' ? 409 : 503);
-      if (correct) await client.rpc('increment_quiz_player_score', { player_id_input: playerId, points_input: 100 });
-      return Response.json({ correct });
+      if (correct) await client.rpc('increment_quiz_player_score', { player_id_input: playerId, points_input: points });
+      return Response.json({ correct, points, secondsRemaining });
     }
     throw new AppError('Unknown quiz action.');
   } catch (error) { return fail(error); }
