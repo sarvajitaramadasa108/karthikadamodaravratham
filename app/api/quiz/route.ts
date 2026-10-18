@@ -119,13 +119,14 @@ export async function POST(request: Request) {
       const current = await hostSession(client, body.code, body.hostToken);
       return Response.json(await view(client, current, true));
     }
-    if (body.action === 'recover') {
+    if (body.action === 'delete') {
       await requireOrganizer();
-      const current = await session(client, body.code);
-      const hostToken = randomBytes(24).toString('base64url');
-      const updated = await client.from('quiz_sessions').update({ host_token_hash: hash(hostToken) }).eq('id', current.id);
-      if (updated.error) throw new AppError('Could not reconnect the quiz.', 503);
-      return Response.json({ ...(await view(client, current, true)), hostToken });
+      const quizCode = text(body.code, 'game code', 6, 6);
+      if (quizCode === '886454' || quizCode === '368764') throw new AppError('This quiz is protected and cannot be deleted.', 403);
+      const current = await session(client, quizCode);
+      const removed = await client.from('quiz_sessions').delete().eq('id', current.id);
+      if (removed.error) throw new AppError('Could not delete the quiz.', 503);
+      return Response.json({ success: true, code: quizCode });
     }
     if (body.action === 'restart') {
       const current = await hostSession(client, body.code, body.hostToken);
