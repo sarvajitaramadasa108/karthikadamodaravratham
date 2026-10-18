@@ -109,6 +109,16 @@ export async function POST(request: Request) {
       const current = await hostSession(client, body.code, body.hostToken);
       return Response.json(await view(client, current, true));
     }
+    if (body.action === 'restart') {
+      const current = await hostSession(client, body.code, body.hostToken);
+      const answers = await client.from('quiz_answers').delete().eq('session_id', current.id);
+      const players = await client.from('quiz_players').delete().eq('session_id', current.id);
+      if (answers.error || players.error) throw new AppError('Could not clear the previous quiz results.', 503);
+      const reset = await client.from('quiz_sessions').update({ status: 'lobby', current_question: 0, question_started_at: null }).eq('id', current.id);
+      if (reset.error) throw new AppError('Could not restart the quiz.', 503);
+      const updated = await session(client, current.code);
+      return Response.json(await view(client, updated, true));
+    }
     if (body.action === 'update') {
       const current = await hostSession(client, body.code, body.hostToken);
       if (current.status !== 'lobby') throw new AppError('Only a quiz in the lobby can be edited. Finish or close the current room before making changes.', 409);
