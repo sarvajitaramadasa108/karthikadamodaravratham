@@ -43,6 +43,9 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
   const [roomViews, setRoomViews] = useState<Record<string, QuizView>>({});
   const [selectedRoomCode, setSelectedRoomCode] = useState('');
   const [editingCode, setEditingCode] = useState('');
+  const [dashboardNeedsLogin, setDashboardNeedsLogin] = useState(initialMode === 'hostDashboard');
+  const [dashboardUsername, setDashboardUsername] = useState('admin');
+  const [dashboardPassword, setDashboardPassword] = useState('');
 
   const current = view?.question;
   const isHost = mode === 'hostRoom';
@@ -134,7 +137,7 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
   }, [mode, view?.phase, view?.session.current_question]);
 
   useEffect(() => {
-    if ((mode !== 'hostDashboard' && mode !== 'host') || savedRooms.length === 0) return;
+    if (mode !== 'host') return;
     const loadRooms = () => Promise.all(savedRooms.map(async (room) => {
       try { const response = await fetch(`/api/quiz?code=${encodeURIComponent(room.code)}`, { cache: 'no-store' }); const data = await response.json(); return response.ok && data?.session ? [room.code, data] as const : null; }
       catch { return null; }
@@ -145,6 +148,37 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
     const timer = window.setInterval(loadRooms, 5000);
     return () => window.clearInterval(timer);
   }, [mode, savedRooms]);
+
+  async function loadDashboardRooms() {
+    setBusy(true); setError('');
+    try {
+      const response = await fetch('/api/quiz?list=1', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) {
+        if (response.status === 401) { setDashboardNeedsLogin(true); return; }
+        throw new Error(data.error || 'Could not load the quizzes.');
+      }
+      const recovered = await Promise.all((data.sessions || []).filter((item: { code: string }) => !removedQuizCodes.has(item.code)).map(async (item: { code: string; title: string; status: HostRoom['status']; created_at?: string }) => {
+        const roomData = await callApi({ action: 'recover', code: item.code });
+        return { room: { code: item.code, title: item.title, hostToken: roomData.hostToken, status: item.status, createdAt: item.created_at || new Date().toISOString() } as HostRoom, view: roomData as QuizView };
+      }));
+      const rooms = recovered.map((item) => item.room);
+      setSavedRooms(rooms); setRoomViews(Object.fromEntries(recovered.map((item) => [item.room.code, item.view]))); setDashboardNeedsLogin(false);
+      window.localStorage.setItem('karthikaQuizHostRooms', JSON.stringify(rooms));
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not load the quizzes.'); }
+    finally { setBusy(false); }
+  }
+
+  async function loginDashboard(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError('');
+    try {
+      const response = await fetch('/api/organizer/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: dashboardUsername, password: dashboardPassword }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Incorrect username or password.');
+      setDashboardPassword('');
+      await loadDashboardRooms();
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not sign in.'); setBusy(false); }
+  }
 
   useEffect(() => {
     if (!current || view?.session.status !== 'live' || (view.phase !== 'question' && view.phase !== 'countdown')) { setRemaining(0); return; }
@@ -223,6 +257,7 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
   function resetForNext() { setAnswered(null); setReaction(''); setAnswerFeedback(null); }
   useEffect(() => { resetForNext(); }, [view?.session.current_question]);
 
+  if (mode === 'hostDashboard' && dashboardNeedsLogin) return <QuizShell><div className="quiz-card quiz-form-card quiz-dashboard-login"><span className="quiz-kicker">Host access</span><h2>Sign in to view your quizzes</h2><p>Use the organizer account to load your quizzes on any browser or phone.</p><form onSubmit={loginDashboard}><label className="quiz-field">Username<input value={dashboardUsername} onChange={(event) => setDashboardUsername(event.target.value)} required autoComplete="username"/></label><label className="quiz-field">Password<input type="password" value={dashboardPassword} onChange={(event) => setDashboardPassword(event.target.value)} required autoComplete="current-password"/></label>{error && <div className="quiz-error">{error}</div>}<button className="quiz-button" disabled={busy}>{busy ? 'Loading quizzes…' : 'Sign in'} <ArrowRight size={17}/></button></form></div></QuizShell>;
   if (mode === 'hostDashboard') return <QuizShell><div className="quiz-dashboard-heading"><div><span className="quiz-kicker">Host dashboard</span><h2>Your quizzes</h2><p>Monitor participation, open a live room, review scores, or edit a quiz.</p></div><button className="quiz-button" onClick={() => { setEditingCode(''); setQuestionsDraft(starterQuestions); setManualQuestion(emptyQuestion); setEditingQuestionIndex(null); setMode('host'); }}><Sparkles size={17}/> Create quiz</button></div>{error && <div className="quiz-error">{error}</div>}{savedRooms.length === 0 ? <div className="quiz-card quiz-empty-dashboard"><Gamepad2 size={30}/><h3>No quizzes created yet</h3><p>Create your first Karthika values quiz and it will appear here.</p><button className="quiz-button" onClick={() => setMode('host')}>Create your first quiz</button></div> : <div className="quiz-dashboard-grid">{savedRooms.map((room) => { const details = roomViews[room.code]; const players = details?.players || []; const status = details?.session?.status || room.status; const average = players.length ? Math.round(players.reduce((sum, player) => sum + player.score, 0) / players.length) : 0; return <article className="quiz-card quiz-dashboard-card" key={room.code}><div className="quiz-dashboard-card-top"><span className={`quiz-status ${status}`}>{status}</span><strong>{room.code}</strong></div><h3>{room.title}</h3><div className="quiz-dashboard-stats"><span><b>{players.length}</b> participants</span><span><b>{details?.questions?.length || '—'}</b> questions</span><span><b>{average}</b> avg score</span></div><div className="quiz-dashboard-actions"><button className="quiz-button secondary" onClick={() => resumeRoom(room)}>Open room</button><button className="quiz-text-button" onClick={() => editRoom(room)}>Edit quiz</button><button className="quiz-text-button" onClick={() => setSelectedRoomCode(selectedRoomCode === room.code ? '' : room.code)}>Scorecard</button><button className="quiz-text-button restart" onClick={() => restartRoom(room)} disabled={busy}>Restart</button></div>{selectedRoomCode === room.code && <div className="quiz-inline-scorecard"><strong>Participation scorecard</strong>{players.length === 0 ? <p>No participants yet.</p> : players.slice(0, 10).map((player, index) => <div key={player.id}><span>{index + 1}. {player.display_name}</span><b>{player.score}</b></div>)}</div>}</article>; })}</div>}</QuizShell>;
 
   if (mode === 'home') return <QuizShell><div className="quiz-hero"><span className="quiz-kicker"><Sparkles size={16}/> Karthika learning studio</span><h1>Live quizzes for <em>devotion</em> and learning.</h1><p>Host a friendly Bhagavad Gita values quiz, share one game code, and let everyone answer together from their phone.</p><div className="quiz-home-actions"><a className="quiz-button" href="/quiz/host"><Play size={18}/> Host a quiz</a><a className="quiz-button secondary" href="/quiz/join"><Gamepad2 size={18}/> Join a quiz</a></div><div className="quiz-feature-row"><span><Users size={16}/> Live player lobby</span><span><Heart size={16}/> Safe reaction bar</span><span><Check size={16}/> Instant scoring</span></div></div><div className="quiz-card quiz-preview"><div className="quiz-preview-glow"/><div className="quiz-preview-code">GAME CODE <strong>123 456</strong></div><div className="quiz-preview-question">What does a lamp represent in devotion?</div><div className="quiz-preview-options"><span>Love</span><span>Discipline</span><span>Both</span><span>Service</span></div><div className="quiz-reactions"><span>❤️</span><span>🙏</span><span>🪔</span><span>✨</span></div></div></QuizShell>;

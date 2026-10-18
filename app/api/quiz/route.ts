@@ -119,6 +119,14 @@ export async function POST(request: Request) {
       const current = await hostSession(client, body.code, body.hostToken);
       return Response.json(await view(client, current, true));
     }
+    if (body.action === 'recover') {
+      await requireOrganizer();
+      const current = await session(client, body.code);
+      const hostToken = randomBytes(24).toString('base64url');
+      const updated = await client.from('quiz_sessions').update({ host_token_hash: hash(hostToken) }).eq('id', current.id);
+      if (updated.error) throw new AppError('Could not reconnect the quiz.', 503);
+      return Response.json({ ...(await view(client, current, true)), hostToken });
+    }
     if (body.action === 'delete') {
       await requireOrganizer();
       const quizCode = text(body.code, 'game code', 6, 6);
