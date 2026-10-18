@@ -190,7 +190,7 @@ export default function QuizPlatform({ initialMode = 'home', lockedMode }: { ini
       if (left <= 0) window.clearInterval(timer);
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [current?.id, view?.session.status, view?.phase, view?.secondsRemaining]);
+  }, [current?.id, view?.session.status, view?.phase]);
 
   async function createQuiz(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError('');
