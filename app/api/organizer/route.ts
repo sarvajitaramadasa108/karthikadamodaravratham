@@ -2,6 +2,7 @@ import { AppError, db, fail, requireOrganizer, sameOrigin, text } from '@/lib/se
 import { inChallenge } from '@/lib/challenge';
 import { randomBytes } from 'node:crypto';
 import { hash } from '@/lib/server';
+import { CONTACT_DEVOTEES } from '@/lib/devotees';
 export const dynamic = 'force-dynamic';
 async function allRows(table: string, columns: string) {
   const client = db(); const rows: Record<string, any>[] = [];
@@ -40,6 +41,9 @@ export async function PATCH(request: Request) {
     } else if (data.action === 'shortlist') {
       if (typeof data.shortlisted !== 'boolean') throw new AppError('Choose a valid shortlist value.');
       result = await client.from('special_offerings').update({ shortlisted: data.shortlisted }).eq('id', text(data.id, 'offering ID', 36, 36));
+    } else if (data.action === 'contact-devotee') {
+      if (!CONTACT_DEVOTEES.includes(data.contactDevotee)) throw new AppError('Choose a valid devotee.');
+      result = await client.from('participants').update({ contact_devotee: data.contactDevotee }).eq('id', text(data.participantId, 'participant ID', 36, 36));
     } else if (data.action === 'reset-code') {
       const code = `KDV-${randomBytes(18).toString('base64url')}`;
       result = await client.from('participants').update({ access_hash: hash(code) }).eq('id', text(data.participantId, 'participant ID', 36, 36)).select('id').single();
