@@ -19,8 +19,14 @@ async function allRows(table: string, columns: string) {
 export async function GET() {
   try {
     await requireOrganizer();
-    const [participants, daily, attendance, special] = await Promise.all([
-      allRows('participants', 'id,reference,child_name,age,gender,participation_slot,contact_devotee,contact_devotee_editable,chanting,chanting_rounds,parent_name,phone,email,locality,school,created_at'),
+    let participants;
+    try {
+      participants = await allRows('participants', 'id,reference,child_name,age,gender,participation_slot,contact_devotee,contact_devotee_editable,chanting,chanting_rounds,parent_name,phone,email,locality,school,created_at');
+    } catch {
+      // Keep the admin page usable while the optional editability migration is pending.
+      participants = (await allRows('participants', 'id,reference,child_name,age,gender,participation_slot,contact_devotee,chanting,chanting_rounds,parent_name,phone,email,locality,school,created_at')).map(row => ({ ...row, contact_devotee_editable: true }));
+    }
+    const [daily, attendance, special] = await Promise.all([
       allRows('daily_offerings', '*'), allRows('attendance', '*'), allRows('special_offerings', '*')
     ]);
     return Response.json({ participants, daily, attendance, special }, { headers: { 'Cache-Control': 'no-store' } });
