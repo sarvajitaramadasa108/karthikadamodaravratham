@@ -20,7 +20,7 @@ export async function GET() {
   try {
     await requireOrganizer();
     const [participants, daily, attendance, special] = await Promise.all([
-      allRows('participants', 'id,reference,child_name,age,gender,participation_slot,contact_devotee,chanting,chanting_rounds,parent_name,phone,email,locality,school,created_at'),
+      allRows('participants', 'id,reference,child_name,age,gender,participation_slot,contact_devotee,contact_devotee_editable,chanting,chanting_rounds,parent_name,phone,email,locality,school,created_at'),
       allRows('daily_offerings', '*'), allRows('attendance', '*'), allRows('special_offerings', '*')
     ]);
     return Response.json({ participants, daily, attendance, special }, { headers: { 'Cache-Control': 'no-store' } });
