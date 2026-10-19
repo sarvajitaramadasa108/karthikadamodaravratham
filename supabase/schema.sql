@@ -8,6 +8,7 @@ create table public.participants (
     age integer not null check (age between 1 and 120),
     gender text not null check (gender in ('Male', 'Female')),
     participation_slot text not null check (participation_slot in ('morning', 'evening', 'both')),
+    contact_devotee text not null,
     chanting boolean not null default false,
     chanting_rounds integer null check (chanting_rounds is null or chanting_rounds between 1 and 16),
     parent_name text null,

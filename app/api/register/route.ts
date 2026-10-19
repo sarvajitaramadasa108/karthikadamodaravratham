@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { AppError, db, fail, hash, sameOrigin, text } from '@/lib/server';
 import { END_DATE, istDate } from '@/lib/challenge';
+const CONTACT_DEVOTEES = ['Yaduraja Dasa','Vaikunteswara Dasa','Ambarisha Dasa','Sruthi Sagar Dasa','Shyama Madhava Dasa','Keshav Kripa Dasa','Gopeshwara Dasa','Ranaveera Rama Dasa','Adhokshaja Dasa','Gadadhara Dasa','Ishana Krishna Dasa','Navaneeta Krishna Dasa','Shadgoswami Dasa','Natha Hari Dasa','Ramaapati Dasa','Sarvajita Rama Dasa','Bhaktidayaka Chaitanya Dasa','Gopijana Vallabha Dasa','Mukunda Gauranga Dasa','Meghanada Vishnu Dasa','Dayasagara Krishna Dasa','No one above'] as const;
 export async function POST(request: Request) {
   try {
     sameOrigin(request);
@@ -11,6 +12,7 @@ export async function POST(request: Request) {
     if (!Number.isInteger(age) || age < 1 || age > 120) throw new AppError('Enter a valid age.');
     if (data.gender !== 'Male' && data.gender !== 'Female') throw new AppError('Select Male or Female.');
     if (data.participationSlot !== 'morning' && data.participationSlot !== 'evening' && data.participationSlot !== 'both') throw new AppError('Select a participation slot.');
+    if (!CONTACT_DEVOTEES.includes(data.contactDevotee)) throw new AppError('Select the devotee you are in touch with.');
     if (data.chanting !== true && data.chanting !== false) throw new AppError('Select whether you chant the Hare Krishna Maha Mantra.');
     const chantingRounds = data.chanting ? Number(data.chantingRounds) : 0;
     if (data.chanting && (!Number.isInteger(chantingRounds) || chantingRounds < 1 || chantingRounds > 16)) throw new AppError('Select between 1 and 16 chanting rounds.');
@@ -23,7 +25,7 @@ export async function POST(request: Request) {
     if (data.website) throw new AppError('We could not submit this registration.');
     const id = randomUUID();
     const code = `KDV-${randomBytes(18).toString('base64url')}`;
-    const { data: saved, error } = await db().from('participants').insert({ id, access_hash: hash(code), child_name: name, age, gender: data.gender, participation_slot: data.participationSlot, chanting: data.chanting, chanting_rounds: data.chanting ? chantingRounds : null, parent_name: null, phone, email, locality, school: null }).select('reference').single();
+    const { data: saved, error } = await db().from('participants').insert({ id, access_hash: hash(code), child_name: name, age, gender: data.gender, participation_slot: data.participationSlot, contact_devotee: data.contactDevotee, chanting: data.chanting, chanting_rounds: data.chanting ? chantingRounds : null, parent_name: null, phone, email, locality, school: null }).select('reference').single();
     if (error?.code === '23505') throw new AppError('This name and WhatsApp number are already registered. Please contact the organizers if you need help.', 409);
     if (error?.code === '42P01') throw new AppError('The Supabase participants table is missing. Run the supplied schema.sql in Supabase SQL Editor.', 503);
     if (error?.code === '23502' || error?.code === '42703' || error?.code === '23514') throw new AppError('The Supabase participants table uses the older schema. Run the supplied registration migration in Supabase SQL Editor.', 503);
@@ -31,3 +33,4 @@ export async function POST(request: Request) {
     return Response.json({ code, reference: saved.reference, name }, { status: 201, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) { return fail(error); }
 }
+
