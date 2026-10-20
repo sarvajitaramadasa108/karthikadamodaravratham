@@ -51,6 +51,16 @@ try {
   await assert.rejects(state('fake-token')); checks++;
   await db.exec("update ramayana_sessions set status='closed'");
   ok((await state('slow')).phase === 'closed', 'Admin can close unfinished attempts');
+  await db.query("update ramayana_sessions set status='lobby' where id=$1", [room]);
+  ok((await state('slow')).phase === 'waiting', 'Reopened room returns unfinished players to waiting');
+  await db.query("update ramayana_players set question_opens_at=null where session_id=$1 and finished_at is null", [room]);
+  await db.query("update ramayana_sessions set status='live' where id=$1", [room]);
+  const resumed = await state('slow');
+  ok(resumed.phase === 'countdown' && resumed.position === 1 && resumed.score === 0, 'Restarting reopened room preserves progress and gives a fresh countdown');
+  ok((await state('fast')).phase === 'finished' && (await state('fast')).score === 2, 'Reopening preserves completed attempts and scores');
+  await db.query("insert into ramayana_players(session_id,name,phone,token_hash) values($1,'Late participant','+919876543213','late-direct')", [room]);
+  const late = await state('late-direct');
+  ok(late.position === 0 && late.phase === 'countdown', 'A live-room registration starts at question one with an independent countdown');
   await db.exec('set role anon');
   await assert.rejects(db.query('select * from ramayana_players')); checks++;
   await assert.rejects(db.query("select ramayana_progress('fast')")); checks++;

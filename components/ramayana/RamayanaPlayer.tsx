@@ -10,11 +10,11 @@ export default function RamayanaPlayer() {
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [ready, setReady] = useState(false);
   const [selected, setSelected] = useState<number | null>(null), [now, setNow] = useState(Date.now());
   const offset = useRef(0), inFlight = useRef(false), submitting = useRef(false), lastPosition = useRef(-1);
-  const completed = state?.phase === 'finished' || state?.phase === 'closed';
+  const completed = state?.phase === 'finished';
   function accept(next: PlayerState) {
     offset.current = Date.parse(next.serverNow) - Date.now();
     setNow(Date.now() + offset.current);
-    if (lastPosition.current !== next.position) { setSelected(null); lastPosition.current = next.position; }
+    if (lastPosition.current !== next.position || next.phase !== 'question') { setSelected(null); lastPosition.current = next.position; }
     setState(next);
   }
   useEffect(() => {
@@ -93,6 +93,6 @@ export default function RamayanaPlayer() {
         </label>)}</fieldset>
         <button className={styles.button} disabled={selected === null || busy || remaining === 0} onClick={submit}>{busy ? 'Submitting…' : remaining === 0 ? 'Time’s up · moving ahead…' : state.position + 1 === state.total ? 'Submit & finish →' : 'Submit & next question →'}</button>
         <p className={styles.note}>Submitting locks your answer and starts your next countdown. You don’t need to wait for anyone else.</p>
-      </section> : <section className={`${styles.card} ${styles.center}`}><div className={styles.emblem}>✦</div><span className={styles.eyebrow}>{state.phase === 'finished' ? 'JOURNEY COMPLETE' : 'QUIZ CLOSED'}</span><h1>Thank you, {state.name}.</h1><p>{state.phase === 'finished' ? 'You have completed the Ramayana quiz.' : 'The admin has closed this quiz.'}</p><div className={styles.score}>{state.score}<small> / {state.total}</small></div><p>correct answers</p><p className={styles.note}>The organizers can view the final results.</p></section>}
+      </section> : <section className={`${styles.card} ${styles.center}`}><div className={styles.emblem}>✦</div><span className={styles.eyebrow}>{state.phase === 'finished' ? 'JOURNEY COMPLETE' : 'QUIZ CLOSED'}</span><h1>Thank you, {state.name}.</h1><p>{state.phase === 'finished' ? 'You have completed the Ramayana quiz.' : 'The admin has closed this quiz. Keep this screen open to resume when the room reopens.'}</p><div className={styles.score}>{state.score}<small> / {state.total}</small></div><p>correct answers</p><p className={styles.note}>The organizers can view the final results.</p></section>}
   </div></main>;
 }

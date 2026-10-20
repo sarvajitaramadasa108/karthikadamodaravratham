@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { checkPassword, cookieOptions, database, digest, fail, json, progress, RamayanaError, requireAdmin, sameOrigin, signIn, token } from '@/lib/ramayana/server';
 import { cleanPhone, cleanQuestions } from '@/lib/ramayana/validation';
 import questionBank from '@/lib/ramayana/question-bank.json';
+import { registerInRoom } from '@/lib/ramayana/registration';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -13,7 +14,7 @@ export async function GET(request: Request) {
     if (params.get('featured') === '1') {
       // This event's QR/game code is public; never return participant details.
       const result = await database().from('ramayana_sessions').select('code,title,status')
-        .eq('title', questionBank.title).eq('status', 'lobby').order('created_at', { ascending: false }).limit(1).maybeSingle();
+        .eq('title', questionBank.title).in('status', ['lobby', 'live']).order('created_at', { ascending: false }).limit(1).maybeSingle();
       if (result.error) throw new RamayanaError('Could not find the imported Ramayana quiz.', 503);
       if (!result.data) throw new RamayanaError('No imported Ramayana quiz is accepting participants yet.', 404);
       return json(result.data);
@@ -73,12 +74,8 @@ export async function POST(request: Request) {
       let phone: string;
       try { phone = cleanPhone(body.phone); } catch (error) { throw new RamayanaError((error as Error).message); }
       const credential = token();
-      const result = await client.rpc('ramayana_join', { p_code: body.code, p_name: body.name.trim(), p_phone: phone, p_hash: digest(credential) });
-      if (result.error) {
-        if (result.error.code === '23505') throw new RamayanaError('This number is already registered. Continue on the original browser or ask the admin for help.', 409);
-        if (result.error.code === 'P0001') throw new RamayanaError(result.error.message, 409);
-        throw new RamayanaError('Could not register. Check the Ramayana quiz database setup.', 503);
-      }
+      try { await registerInRoom(client, body.code, body.name.trim(), phone, digest(credential)); }
+      catch (error) { throw new RamayanaError((error as Error).message, 409); }
       return json({ token: credential, state: await progress(client, credential) });
     }
     if (body.action === 'answer') {
@@ -102,9 +99,15 @@ export async function POST(request: Request) {
       if (!createdCode) throw new RamayanaError('Could not generate a room code. Try again.', 503);
       return json({ code: createdCode });
     }
-    if (body.action === 'start' || body.action === 'close') {
+    if (body.action === 'start' || body.action === 'close' || body.action === 'reopen') {
       if (typeof body.code !== 'string' || !/^\d{6}$/.test(body.code)) throw new RamayanaError('Choose a quiz room.');
-      const result = await client.from('ramayana_sessions').update(body.action === 'start' ? { status: 'live', started_at: new Date().toISOString() } : { status: 'closed' }).eq('code', body.code).eq('status', body.action === 'start' ? 'lobby' : 'live').select('code').maybeSingle();
+      if (body.action === 'start') {
+        const room = await client.from('ramayana_sessions').select('id,status').eq('code', body.code).maybeSingle();
+        if (room.error || !room.data || room.data.status !== 'lobby') throw new RamayanaError('This room is not waiting to start. Refresh the dashboard.', 409);
+        const reset = await client.from('ramayana_players').update({ question_opens_at: null }).eq('session_id', room.data.id).is('finished_at', null);
+        if (reset.error) throw new RamayanaError('Could not prepare participant timers.', 503);
+      }
+      const result = await client.from('ramayana_sessions').update(body.action === 'start' ? { status: 'live', started_at: new Date().toISOString() } : { status: body.action === 'reopen' ? 'lobby' : 'closed' }).eq('code', body.code).eq('status', body.action === 'start' ? 'lobby' : body.action === 'reopen' ? 'closed' : 'live').select('code').maybeSingle();
       if (result.error) throw new RamayanaError('Could not update the quiz.', 503);
       if (!result.data) throw new RamayanaError('This room has already changed. Refresh the dashboard.', 409);
       return json({ ok: true });

@@ -13,7 +13,7 @@ To set up the tables and import this specific quiz in one step, run **`supabase/
 3. Deploy this website with those additions, or run `npm run dev` locally. Deployment/database setup are not performed by adding these files.
 4. Open `/ramayana/host`, sign in, and create a quiz manually or import an Excel workbook. Up to 100 questions; all questions have a 30-second timer. Use the supplied template and replace its placeholder question. English and Telugu can appear together in each question/option. Imported workbooks require four filled option columns.
 5. Select the room, click **Open audience screen**, and show that separate tab on the projector. It displays only the QR code and participation count, without participant names or numbers. The QR opens `/ramayana/join?code=123456` on the same domain. Use the deployed public HTTPS domain for real phones; a localhost QR will not work on another device. Keep the admin dashboard on your private screen.
-6. Participants enter their name and mobile number. Registration closes when the admin clicks **Start quiz for everyone**.
+6. Participants enter their name and mobile number. Joining remains available in both waiting and live rooms. Late joiners start at question 1 with their own countdown and timers. Only a closed room rejects new registrations. The audience QR stays visible while the quiz is live.
 
 ## Participant timing
 
@@ -21,7 +21,9 @@ The waiting page checks for admin start every second. Each person's first three-
 
 At 30 seconds, the answer is recorded as unanswered and the next countdown starts on the next server contact. A disconnected participant's current timer keeps running; reconnecting records that timeout and starts the next question. Future questions are not consumed while the browser is disconnected. Refreshing resumes the same attempt in the same browser. Polling/network delays can briefly extend a transition on screen; they never extend the server's answer window. A late submission is treated as a timeout.
 
-Correct answers earn one point. Results sort by correct answers descending and cumulative answer time ascending, with join time as a stable final ordering. Time excludes countdowns and includes 30 seconds for each timeout. The participant sees their final score; the admin sees names, numbers, progress, scores and time and can export an Excel workbook. Compare completed attempts for final standings. **Close quiz** stops unfinished attempts; create a new room for another round. There is no automatic SMS or phone verification.
+Correct answers earn one point. Results sort by correct answers descending and cumulative answer time ascending, with join time as a stable final ordering. Time excludes countdowns and includes 30 seconds for each timeout. The participant sees their final score; the admin sees names, numbers, progress, scores and time and can export an Excel workbook. Compare completed attempts for final standings. **Close quiz** stops unfinished attempts. **Reopen room** returns a closed room to its waiting lobby, preserving registrations, answers and scores. Click **Start quiz for everyone** to resume: unfinished participants receive a fresh countdown at their current question, and completed attempts stay completed. Participants on the closed screen reconnect automatically when the room reopens. Create a new room to give everyone a fresh attempt. There is no automatic SMS or phone verification.
+
+Late joining and reopening use the existing Ramayana tables through the server API; no additional SQL migration is required. The original lobby-only `ramayana_join` function is retained for compatibility but is no longer used by the participant registration API.
 
 ## Isolation and privacy
 
