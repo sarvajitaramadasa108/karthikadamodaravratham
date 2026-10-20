@@ -1,0 +1,73 @@
+// Isolated PostgreSQL integration check; never connects to Supabase.
+// Install @electric-sql/pglite in a temporary folder, then pass that folder here.
+import { createRequire } from 'node:module';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import assert from 'node:assert/strict';
+const require = createRequire(resolve(process.argv[2] || '.', 'package.json'));
+const { PGlite } = require('@electric-sql/pglite');
+const db = new PGlite();
+let checks = 0;
+const ok = (value, message) => { assert.ok(value, message); checks++; };
+try {
+  await db.exec('create role anon; create role authenticated; create role service_role;');
+  await db.exec(await readFile(new URL('../supabase/migrations/20261020_ramayana_quiz.sql', import.meta.url), 'utf8'));
+  const room = (await db.query('select ramayana_create($1,$2,$3) as id', ['123456','Independent test',JSON.stringify([{prompt:'Question one',options:['A','B'],correctIndex:0},{prompt:'Question two',options:['C','D'],correctIndex:1}])])).rows[0].id;
+  await assert.rejects(db.query('select ramayana_create($1,$2,$3)', ['654321','Invalid',JSON.stringify([{prompt:'Invalid',options:['Only one'],correctIndex:0}])])); checks++;
+  ok((await db.query("select count(*)::integer as n from ramayana_sessions where code='654321'")).rows[0].n === 0, 'Failed question save rolls back the entire room');
+  const join = (name, phone, hash) => db.query('select ramayana_join($1,$2,$3,$4)', ['123456',name,phone,hash]);
+  const state = async (hash, position = null, answer = null) => (await db.query('select ramayana_progress($1,$2,$3) as state', [hash,position,answer])).rows[0].state;
+  await join('Fast player','+919876543210','fast'); await join('Slow player','+919876543211','slow');
+  await assert.rejects(join('Duplicate','+919876543210','duplicate')); checks++;
+  ok((await state('fast')).phase === 'waiting', 'Participants wait for admin');
+  await db.query("update ramayana_sessions set status='live',started_at=now() where id=$1",[room]);
+  await assert.rejects(join('Late player','+919876543212','late')); checks++;
+  const countdown = await state('fast');
+  ok(countdown.phase === 'countdown' && countdown.question === null, 'Countdown does not leak the question');
+  await assert.rejects(state('fast',0,0)); checks++;
+  const again = await state('fast');
+  ok(again.opensAt === countdown.opensAt, 'Refreshing does not reset the timer');
+  await state('slow');
+  await db.exec("update ramayana_players set question_opens_at=clock_timestamp()-interval '10 seconds'");
+  const visible = await state('fast');
+  ok(visible.phase === 'question' && visible.question.prompt === 'Question one' && !JSON.stringify(visible).includes('correct_index'), 'Only current question is exposed, without answer key');
+  await assert.rejects(state('fast',0,3)); checks++;
+  const advanced = await state('fast',0,0);
+  ok(advanced.position === 1 && advanced.phase === 'countdown' && advanced.score === 1, 'Submitting advances immediately with countdown');
+  const slower = await state('slow');
+  ok(slower.position === 0 && slower.phase === 'question', 'Other participants remain on their own question');
+  const duplicate = await state('fast',0,0);
+  ok(duplicate.position === 1 && duplicate.score === 1, 'Duplicate request cannot skip or score twice');
+  await db.exec("update ramayana_players set question_opens_at=clock_timestamp()-interval '31 seconds' where token_hash='slow'");
+  const expired = await state('slow',0,0);
+  ok(expired.position === 1 && expired.score === 0, 'Late answer is recorded as a timeout, then advances');
+  const timeout = (await db.query("select a.answer_index,a.elapsed_ms from ramayana_answers a join ramayana_players p on p.id=a.player_id where p.token_hash='slow'")).rows[0];
+  ok(timeout.answer_index === null && timeout.elapsed_ms === 30000, 'Timeout consumes 30 seconds and no selected answer');
+  await db.exec("update ramayana_players set question_opens_at=clock_timestamp()-interval '1 second' where token_hash='fast'");
+  const final = await state('fast',1,1);
+  ok(final.phase === 'finished' && final.score === 2 && final.position === 2, 'Final submit completes the attempt');
+  const replay = await state('fast',1,1);
+  ok(replay.score === 2, 'Final answer is idempotent');
+  await assert.rejects(state('fake-token')); checks++;
+  await db.exec("update ramayana_sessions set status='closed'");
+  ok((await state('slow')).phase === 'closed', 'Admin can close unfinished attempts');
+  await db.exec('set role anon');
+  await assert.rejects(db.query('select * from ramayana_players')); checks++;
+  await assert.rejects(db.query("select ramayana_progress('fast')")); checks++;
+  await db.exec('reset role');
+  const seedDb = new PGlite();
+  try {
+    await seedDb.exec('create role anon; create role authenticated; create role service_role; create table participants(id integer); insert into participants values(108);');
+    const seed = await readFile(new URL('../supabase/seeds/ramayana-pdf-25-setup.sql', import.meta.url), 'utf8');
+    await seedDb.exec(seed);
+    const first = (await seedDb.query('select code from ramayana_sessions')).rows[0].code;
+    ok(/^\d{6}$/.test(first), 'PDF setup creates an actual six-digit room code');
+    ok((await seedDb.query('select count(*)::integer as n from ramayana_questions')).rows[0].n === 25, 'PDF setup imports exactly 25 questions');
+    await seedDb.exec(seed);
+    ok((await seedDb.query('select count(*)::integer as n from ramayana_sessions')).rows[0].n === 1, 'Running the PDF setup twice does not duplicate the room');
+    ok((await seedDb.query('select code from ramayana_sessions')).rows[0].code === first, 'Repeated setup retains the room code');
+    ok((await seedDb.query('select id from participants')).rows[0].id === 108, 'Existing challenge table and its data remain untouched');
+  } finally { await seedDb.close(); }
+  console.log(`Passed ${checks} Ramayana database integration checks.`);
+} catch (error) { console.error(error.message); process.exitCode = 1; }
+finally { await db.close(); }
